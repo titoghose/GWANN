@@ -1,0 +1,27 @@
+# Weight for MatAD and PatAD set to number of testing set samples
+
+SCHEME SAMPLESIZE
+OVERLAP ON
+
+# MatAD
+MARKER   Gene
+DEFAULT  7841
+ALLELE   A1 A2
+EFFECT   Acc
+PVAL     P
+
+PROCESS /home/upamanyu/GWASOnSteroids/MatAD_wins_METAL.csv
+
+# PatAD
+MARKER   Gene
+DEFAULT  3805
+ALLELE   A1 A2
+EFFECT   Acc
+PVAL     P
+
+PROCESS /home/upamanyu/GWASOnSteroids/PatAD_wins_METAL.csv
+
+OUTFILE  /home/upamanyu/GWASOnSteroids/GWANN_wins_AD_METAL .TBL
+
+# Execute meta-analysis
+ANALYZE

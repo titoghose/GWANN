@@ -1,0 +1,12 @@
+RAW_BASE_FOLDER : 
+- '/mnt/sdd/UKBB_1'
+- '/mnt/sdc/UKBB_2'
+DATA_BASE_FOLDER : '/mnt/sdf/Data'
+RUNS_BASE_FOLDER : '/home/upamanyu/GWASOnSteroids/Runs'
+LOGS_BASE_FOLDER : '/home/upamanyu/GWASOnSteroids/NN_Logs'
+SUMMARY_BASE_FOLDER : '/home/upamanyu/GWASOnSteroids/Exp_Summary_AD'
+LDPCA_BASE_FOLDER: '/mnt/sdg/upamanyu/LD_PCA'
+COV_ENC_PATH: '/home/upamanyu/GWANN/Code_AD/params/cov_encodings_PATERNAL_MARIONI.npz'
+TEST_IDS_PATH: '/home/upamanyu/GWANN/Code_AD/params/test_ids_PATERNAL_MARIONI.csv'
+TRAIN_IDS_PATH: '/home/upamanyu/GWANN/Code_AD/params/train_ids_PATERNAL_MARIONI.csv'
+PARAMS_PATH: '/home/upamanyu/GWANN/Code_AD/params'

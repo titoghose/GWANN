@@ -1,21 +1,120 @@
 import sys
-sys.path.append('.')
 
+sys.path.append('/home/upamanyu/GWANN')
+
+import multiprocessing as mp
+import shutil
 import warnings
+from functools import partial
+from typing import Optional
+
+import yaml
+
 warnings.filterwarnings('ignore')
 
-import torch
-import numpy as np 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import scipy.stats as stats
-import matplotlib.pyplot as plt
-from sklearn.model_selection import StratifiedShuffleSplit, StratifiedKFold
+from sklearn.model_selection import StratifiedShuffleSplit
 
-from GWANN.dataset_utils import *
-from GWANN.models import *
-from GWANN.utils import *
+from GWANN.dataset_utils import (balance_by_agesex, create_data_for_run,
+                                 create_groups, group_ages, split,
+                                 write_and_return_data)
+from GWANN.utils import vprint
 
-def find_all_ids(param_folder, phen_cov_path):
+
+def filter_ids(param_folder:str, phen_cov_path:str) -> None:
+    """Additional filters to remove ids that were selected during the
+    original analysis to create a new set of ids for the re-run to
+    address reviewer comments. Retain most of the old ids except where
+    (i) individuals withdrew participation from UKB, (ii) have any
+    missing values for covariates, or (iii) sample is a control but is
+    in the list of AD diagnosed people.
+
+    param_folder : str
+        Path to the folder containing experiment parameters or the
+        folder where all additional parameter files should be saved.
+    phen_cov_path : str
+        Path to the file containing the covariates and phenotype
+        information for all individuals in the cohort.
+    """
+    extended_AD_ids = pd.read_csv(
+        './params/UKB_AD_inc_c.sample', sep='\t').iloc[1:,:]['ID_1'].to_list()
+    
+    ukb_withdrawn_ids = pd.read_csv(
+            'params/ukb_withdrawn_04May23.csv')['ID_1'].to_list()
+
+    neuro_ids = pd.read_csv('./params/Neuro_Diagnosis.csv')['ID_1'].to_list()
+
+    with open(f'{param_folder}/covs_MATERNAL_MARIONI.yaml', 'r') as f:
+        covs = yaml.load(f, yaml.FullLoader)['COVARIATES']
+    phen_cov_df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
+    phen_cov_df = phen_cov_df[
+        ['ID_1',] + covs + ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']]
+    phen_cov_df.set_index('ID_1', inplace=True, drop=False)
+    phen_cov_df.dropna(subset=covs, axis=0, how='any', inplace=True)
+    
+    original_ids = []
+    for phen in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        for split in ['train', 'test']:
+            ids = pd.read_csv(f'./params/original_run/{split}_ids_{phen}.csv')['iid'].to_list()
+            original_ids.extend(ids)
+    
+    add_df = phen_cov_df.loc[~phen_cov_df.index.isin(original_ids)]
+    add_df = add_df.loc[
+                (add_df['MATERNAL_MARIONI'] != 1) & 
+                (add_df['PATERNAL_MARIONI'] != 1) &
+                (~add_df.index.isin(neuro_ids)) &
+                (~add_df.index.isin(extended_AD_ids)) &
+                (~add_df.index.isin(ukb_withdrawn_ids))]
+
+    for phen in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        for split in ['train', 'test']:
+            
+            vprint(f'\n\n{phen} - {split}')
+            vprint('------------')
+            id_df = pd.read_csv(f'./params/original_run/{split}_ids_{phen}.csv')
+            id_df.set_index('iid', inplace=True, drop=False)
+            vprint(id_df.groupby(phen).count().T)
+
+            # Remove iids with missing covariate data   
+            id_df = id_df.loc[id_df.index.isin(phen_cov_df.index)]
+            
+            # Remove controls with AD diagnosis
+            id_df = id_df.loc[~((id_df[phen] == 0) & 
+                                (id_df.index.isin(extended_AD_ids)))]
+            
+            # Remove cases and controls in the withdrawn list
+            id_df = id_df.loc[~id_df.index.isin(ukb_withdrawn_ids)]
+            
+            vprint(f'\nAfter filters:')
+            vprint(id_df.groupby(phen).count().T)
+            # print(id_df.groupby(phen).count().index)
+
+            # If n(controls) < n(cases) add controls to make ratio 1:1
+            num_extra_cases = (id_df.loc[id_df[phen] == 1].shape[0] - 
+                               id_df.loc[id_df[phen] == 0].shape[0])
+            add_controls = add_df.loc[add_df[phen] == 0].sample(
+                                        num_extra_cases, random_state=2617)
+            add_df.drop(index=add_controls.index, inplace=True)
+            add_controls.rename(columns={'ID_1': 'iid'}, inplace=True)
+            id_df = pd.concat((id_df, add_controls[['iid', phen]]))
+    
+            vprint(f'\nAfter adding new controls:')
+            vprint(id_df.groupby(phen).count().T)
+
+            id_df.to_csv(f'./params/reviewer_rerun/{split}_ids_{phen}.csv', 
+                         index=False)
+        
+        create_groups(
+            label=label,
+            param_folder=param_folder, 
+            phen_cov_path=phen_cov_path,
+            grp_size=10
+        )
+
+def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
     """From all possible indidividuals in the UKBB data, generate 1:1 
     case:control split and save all ids to a file. Do this for Maternal
     and Paternal histories.
@@ -27,7 +126,7 @@ def find_all_ids(param_folder, phen_cov_path):
         folder where all additional parameter files should be saved.
     phen_cov_path : str
         Path to the file containing the covariates and phenotype
-        information for all individuals in the cohort.    
+        information for all individuals in the cohort.
     """
     
     geno_id_path = '{}/geno_ids.csv'.format(param_folder)
@@ -137,127 +236,92 @@ def find_all_ids(param_folder, phen_cov_path):
         plt.savefig('{}/sex_dist_{}.png'.format(param_folder, label))
         plt.close()
 
-def create_groups(param_folder, phen_cov_path, grp_size,
-            train_oversample=10, test_oversample=10):
-    """Convert data arrays to grouped data arrays after balancing as
-    best as possible for age and sex.
+def create_cov_only_data(label:str, param_folder:str, chrom:str, 
+                         SNP_thresh:int=10000) -> None:
+    gene_map_file='/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv'
+    with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
+        sys_params = yaml.load(f, Loader=yaml.FullLoader)
+    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
+        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
+
+    genes_df = pd.read_csv(gene_map_file, comment='#', dtype={'chrom':str})
+    genes_df.drop_duplicates('symbol', inplace=True)
+    genes_df = genes_df.loc[genes_df['symbol'].isin(['BCR', 'RBFOX2'])]
+
+    write_and_return_data(
+        gene_dict=dict(
+                    names=genes_df['symbol'].to_list(),
+                    chrom=genes_df['symbol'].to_list(),
+                    start=genes_df['start'].to_list(),
+                    end=genes_df['end'].to_list()),
+        chrom=chrom, lock=None, sys_params=sys_params, covs=covs, buffer=2500, 
+        label=label, only_covs=True, SNP_thresh=SNP_thresh, ret_data=False)
+
+def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000,
+                    glist:Optional[list]=None, num_procs:int=20) -> None:
+    
+    gene_map_file='/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv'
+    with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
+        sys_params = yaml.load(f, Loader=yaml.FullLoader)
+    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
+        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
+
+    create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
+                        buffer=2500, SNP_thresh=SNP_thresh, 
+                        num_procs_per_chrom=num_procs)
+    create_gene_wins(sys_params, covs, num_procs=num_procs)
+
+def create_gene_wins(sys_params:dict, covs:list, num_procs:int) -> None:
+    """Split data files into windows for training. First move data files
+    into a new folder and create an empty folder.
 
     Parameters
     ----------
-    param_folder : str
-        Path to the folder containing experiment parameters or the
-        folder where all additional parameter files should be saved.
-    phen_cov_path : str
-        Path to the file containing the covariates and phenotype
-        information for all individuals in the cohort.    
-    grp_size : int
-        Size of groups
-    train_oversample : int, optional
-        Factor to oversample all train data samples by before forming into
-        groups, by default 10
-    test_oversample : int, optional
-        Factor to oversample all test data samples by before forming into
-        groups, by default 10
-
-    Returns
-    -------
-    dict of tuples
-        Each tuple of 4 ndarrays:
-        0 - Grouped train set ids
-        1 - Train labels
-        2 - Grouped test set ids
-        3 - Test labels
+    sys_params : dict
+        _description_
+    covs : list
+        _description_
     """
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-        print('\nGrouping ids for for: {}'.format(label))
-        
-        group_id_path = '{}/group_ids_{}.npz'.format(param_folder, label)
-        if os.path.isfile(group_id_path):
-            print('Group ids file exists')
-            continue
-        
-        df = pd.read_csv(phen_cov_path, sep=' ')
-        df.set_index('ID_1', drop=False, inplace=True)
-        
-        train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
-        train_ids = pd.read_csv(train_ids_path)['iid'].values
-        test_ids_path = '{}/test_ids_{}.csv'.format(param_folder, label)
-        test_ids = pd.read_csv(test_ids_path)['iid'].values
-        
-        X = df.loc[train_ids]
-        y = df.loc[train_ids][label].values
-        Xt = df.loc[test_ids]
-        yt = df.loc[test_ids][label].values
-
-        grp_ids = []
-        grp_labels = []
-        for X_, y_, over in [(X, y, train_oversample), (Xt, yt, test_oversample)]:
-            
-            case = np.where(y_ == 1)[0]
-            cont = np.where(y_ == 0)[0]
-            
-            # Randomly oversample and interleave the individuals
-            case = np.repeat(case, over)
-            np.random.seed(1763)
-            np.random.shuffle(case)
-            cont = np.repeat(cont, over)
-            np.random.seed(1763)
-            np.random.shuffle(cont)
-
-            # Remove extra samples that will not form a group of the
-            # expected size
-            case_num = len(case) - len(case)%grp_size
-            cont_num = len(cont) - len(cont)%grp_size
-            np.random.seed(8983)
-            case = np.random.choice(case, case_num, replace=False)
-            np.random.seed(8983)
-            cont = np.random.choice(cont, cont_num, replace=False)
-
-            # Create groups balanced on age and sex (as close as possible)
-            # Xg[0] - Case, Xg[1] - Control
-            Xg = [[], []]
-            sex = X_['f.31.0.0'].values
-            age = X_['f.21003.0.0'].values
-            vprint('Ages : {}'.format(np.unique(age)))
-            age = group_ages(age, num_grps=3)
-            for j, idxs in enumerate([case, cont]):
-                n_splits = round(len(idxs)/grp_size)
-                X_idxs = X_.iloc[idxs, :]
-                sex_idxs = sex[idxs]
-                age_idxs = age[idxs]
-
-                # Combine age groups and sex to form stratified groups
-                age_sex = np.add(age_idxs, sex_idxs*3)
-                vprint('Age groups: {}'.format(np.unique(age_idxs)))
-                vprint('Sex: {}'.format(np.unique(sex_idxs)))
-                vprint('Unique age_sex groups: {}'.format(np.unique(age_sex)))
-                
-                skf = StratifiedKFold(
-                            n_splits=n_splits, 
-                            shuffle=True, 
-                            random_state=4231)
-                for _, ind in skf.split(np.zeros(len(idxs)), age_sex):
-                    Xg[j].append(X_idxs.iloc[ind].index.values)
-                    
-            grp_ids.append(np.concatenate((Xg[0], Xg[1])))
-            grp_labels.append(np.concatenate((np.ones(len(Xg[0])), np.zeros(len(Xg[1])))))
     
-        np.savez(group_id_path,
-            train_grps=grp_ids[0],
-            train_grp_labels=grp_labels[0],
-            test_grps=grp_ids[1],
-            test_grp_labels=grp_labels[1])
+    dp = sys_params['DATA_BASE_FOLDER'].split('/')
+    dp[-1] = f'_{dp[-1]}'
+    new_dp = '/'.join(dp)
+    print(f'Moving data to {new_dp}.')
+    print((f'Creating new folder {sys_params["DATA_BASE_FOLDER"]} for'+ 
+           f' data split into windows'))
+    shutil.move(sys_params['DATA_BASE_FOLDER'], new_dp)
+    os.mkdir(sys_params['DATA_BASE_FOLDER'])
+    
+    read_base = new_dp
+    write_base = sys_params['DATA_BASE_FOLDER']
+
+    glist = os.listdir(new_dp)
+    num_procs = min(num_procs, len(glist))
+    glist = np.array_split(glist, num_procs)
+    with mp.Pool(num_procs) as pool:
+        par_split = partial(split, covs=covs, label=label, read_base=read_base, 
+                            write_base=write_base)
+        pool.map(par_split, glist)
+        pool.close()
+        pool.join()
 
 if __name__ == '__main__':
     
     # 1. Find all train and test ids
-    find_all_ids(
-        param_folder='Code_AD/params', 
-        phen_cov_path='/mnt/sdc/UKBB_2/Variables_UKB.txt')
+    # find_all_ids(
+    #     param_folder='Code_AD/params', 
+    #     phen_cov_path='/mnt/sdc/UKBB_2/Variables_UKB.txt')
 
-    # 2. Group ids to enable "group-training"
-    create_groups(
-        param_folder='Code_AD/params', 
-        phen_cov_path='/mnt/sdc/UKBB_2/Variables_UKB.txt',
-        grp_size=10
-    )
+    # Cell Reports reviewer rerun
+    # filter_ids(
+    #     param_folder='./params', 
+    #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
+    
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        # create_csv_data(label=label, 
+        #                 param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
+        #                 chrom='22', 
+        #                 glist=['BCR'])
+        create_cov_only_data(label=label, 
+                            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
+                            chrom='22')

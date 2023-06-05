@@ -1,0 +1,5 @@
+**/params/*
+**/__pycache__
+*.csv
+**/NN_Logs
+**/Runs

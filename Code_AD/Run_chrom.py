@@ -3,7 +3,7 @@ sys.path.append('.')
 
 import argparse
 from GWANN.train_model_LG import *
-from GWANN.models import *
+from GWANN.models import GWANNet5, AttentionMask1
 
 if __name__ == '__main__':
 

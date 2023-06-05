@@ -1,40 +1,37 @@
 # coding: utf-8
-import os
-import sys
-import csv
-import yaml
-import tqdm
-import pickle
 import datetime
+import os
 import traceback
-import numpy as np
-import pandas as pd 
-from functools import partial
+from typing import Union
 import warnings
+
 warnings.filterwarnings('ignore')
 
-from GWANN.train_utils import *
-from GWANN.dataset_utils import *
-from GWANN.models import *
-
-from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
-
-import torch
+import numpy as np
+import pandas as pd
+import yaml
+import multiprocessing as mp
 import torch.nn as nn
 
+from GWANN.dataset_utils import PGEN2Pandas, load_data
+from GWANN.train_utils import create_train_plots, train
+
+
 class Experiment:
-    def __init__(self, pre, label, params_base, bp=0):
+    def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
+                 model:nn.Module, model_dict:dict, hp_dict:dict, 
+                 gpu_list:list):
 
         # Experiment descriptive parameters
-        self.PRE = pre
+        self.prefix = prefix
         self.label = label
-        self.bp = bp        
+        self.buffer = buffer
         self.params_base = params_base
 
         # Base parameter YAML files
         self.sys_params = None
         self.covs = None
-        self.set_params()
+        self.__set_params__()
 
         # Path parameters
         self.RUN_FOLDER = ''
@@ -43,48 +40,43 @@ class Experiment:
         self.TRAIN_FILE = ''
         self.TRAIN_ERR_FILE = ''
         self.NONE_DATA_FILE = ''
-        self.MODEL_SNP_LIMIT = 50
-
+        
         # NN model and permutation test specific parameters
-        self.model = None
-        self.model_params = None
+        self.model = model
+        self.model_params = model_dict
+        self.hyperparam_dict = hp_dict
         self.model_dir = ''
-        self.hyperparam_dict = None
-        self.ptest_f = ''
+        self.summary_f = ''
         self.perms = 0
         self.perm_batch_size = 1024
 
+        self.__set_paths__()
+
         # Dataset generation parameters
-        self.OVER_COEFF = 0.0
-        self.BALANCE = 1.0
-        self.SNP_THRESH = 1000
-        self.GENOTYPES = {}
-        self.PHEN_COV = None
-        self.train_oversample = 10
-        self.test_oversample = 10
+        self.SNP_THRESH = 10000
+        self.pg2pd = None
+        self.phen_cov = None
         
         # Training parameters
-        self.GPU_LIST = []
-        self.cov_encodings = None#self.load_cov_encodings()
+        self.GPU_LIST = gpu_list
         self.gene_type = ''
     
-    def set_params(self):
+    def __set_params__(self):
         """Load the YAML file containing system specific paths and 
         parameters.
         """
-        sysf = '{}/params_{}.yaml'.format(self.params_base, self.label)
+        sysf = f'{self.params_base}/params_{self.label}.yaml'
         with open(sysf, 'r') as params_file:
             self.sys_params = yaml.load(params_file, Loader=yaml.FullLoader) 
-        covsf = '{}/covs_{}.yaml'.format(self.params_base, self.label)
+        covsf = f'{self.params_base}/covs_{self.label}.yaml'
         with open(covsf, 'r') as covs_file:
-            self.covs = yaml.load(covs_file, Loader=yaml.FullLoader)
-        self.covs = self.covs['COVARIATES']
+            self.covs = yaml.load(covs_file, Loader=yaml.FullLoader)['COVARIATES']
         
-    def set_paths(self):
+    def __set_paths__(self):
         """Function to set all file and folder paths, later used by
         other functions.
         """
-        self.RUN_FOLDER = '{}/{}'.format(self.sys_params['RUNS_BASE_FOLDER'], self.PRE)
+        self.RUN_FOLDER = '{}/{}'.format(self.sys_params['RUNS_BASE_FOLDER'], self.prefix)
         self.PERM_FILE = '{}/{}'.format(self.RUN_FOLDER, 'perm.txt')
         self.PERM_ERR_FILE = '{}/{}'.format(self.RUN_FOLDER, 'perm_err.txt')
         self.TRAIN_FILE = '{}/{}'.format(self.RUN_FOLDER, 'train.txt')
@@ -100,7 +92,7 @@ class Experiment:
             hp_dict['batch'], 
             hp_dict['optimiser'])
         model_id = '{}_{}_{}_Dr_{}_{}'.format(
-            self.PRE, 
+            self.prefix, 
             self.model.__name__, 
             '['+','.join([str(h) for h in self.model_params['h']])+']', 
             self.model_params['d'][0], 
@@ -109,76 +101,25 @@ class Experiment:
             self.sys_params['LOGS_BASE_FOLDER'], 
             model_id)
         self.model_dir = model_dir
-        self.ptest_f = '{}/{}ptest_{}_{}bp.csv'.format(
-                self.model_dir, self.PRE, self.label, self.bp)
-        # self.ptest_f = '{}/Test.csv'.format(self.model_dir)
+        self.summary_f = '{}/{}_summary_{}_{}bp.csv'.format(
+                self.model_dir, self.prefix, self.label, self.buffer)
         if not os.path.isdir(self.model_dir):
             os.mkdir(self.model_dir)
-
-    def set_model(self, model, model_params):
-        """Set NN model and other parameters for the model to be used
-        for training.
-
-        Parameters
-        ----------
-        model : torch.nn.Module
-            NN model used for training.
-        model_params : dict
-            Dictionary of model parameters that will be used to
-            initialise the model object.
-        """
-        self.model = model
-        self.model_params = model_params
-
-    def load_plink_files(self, chroms):
-        """Function to load the required plink files and phenotype-covariate
-        file for the different chromosomes, before the start of training
-        to speed up the data creation process.
-
-        Parameters
-        ----------
-        chroms : list of str
-            List of chromosomes to load. 
-        """
-        # Loading PLINK files for  (Dask Array)
-        genotype_files = dict.fromkeys(chroms, None)
-        for c in genotype_files.keys():
-            plink_prefix = '{}/ukb_imp_chr{}_v3_cleaned_geno_hwe_maf_2'.format(
-                self.sys_params['RAW_BASE_FOLDER'][int(c)>10], str(c))
-            geno = read_plink1_bin(plink_prefix + '.bed')
-            genotype_files[c] = remove_indel_multiallelic(geno)
-
-        # Loading csv file of phenotypes and covariates (Pandas DF)
-        phenotype_file = '{}/Variables_UKB.txt'.format(
-            self.sys_params['RAW_BASE_FOLDER'][int(chroms[0])>10])
-        phen_cov = pd.read_csv(phenotype_file, sep = ' ', dtype = {'ID_1':np.int})
-        phen_cov = phen_cov.rename(columns={'ID_1':'iid'})
-        phen_cov.index = phen_cov['iid']
-
-        self.GENOTYPES = genotype_files
-        self.PHEN_COV = phen_cov
-
-    def load_cov_encodings(self, gene):
-        """Load precomputed covariate encodings to speed up training.
-        The encodings are duplicated and expanded to support "group 
-        training".
-
-        Returns
-        -------
-        tuple
-            Tuple of 2 ndarrays containing the training set and testing
-            set covariate encodings. 
-        """
-        with open(self.sys_params['COV_ENC_PATH'], 'rb') as f:
-            cov_enc = pickle.load(f)
-        cov_enc = np.load(self.sys_params['COV_ENC_PATH'])
-        ce_train = np.expand_dims(cov_enc['train_enc'], 1)
-        ce_train = np.repeat(ce_train, 10, 1)
-        ce_test = np.expand_dims(cov_enc['test_enc'], 1)
-        ce_test = np.repeat(ce_test, 10, 1)
-        return (ce_train, ce_test)
     
-    def gen_data(self, gene, chrom):
+    def __set_genotypes_and_covariates__(self, chrom):
+        pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
+        train_ids = pd.read_csv(self.sys_params["TRAIN_IDS_PATH"], 
+                                dtype={'iid':str})['iid'].to_list()
+        test_ids = pd.read_csv(self.sys_params["TEST_IDS_PATH"],
+                            dtype={'iid':str})['iid'].to_list()
+        self.pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=train_ids+test_ids)
+        
+        self.phen_cov = pd.read_csv(self.sys_params['PHEN_COV_PATH'], 
+                            sep=' ', dtype={'ID_1':str}, comment='#')
+        self.phen_cov = self.phen_cov.rename(columns={'ID_1':'iid'})
+        self.phen_cov.index = self.phen_cov['iid']
+
+    def __gen_data__(self, gene:str, chrom:str, start:int, end:int) -> tuple:
         """Generate combined data file for the gene list. Invokes 
         load_data function from dataset_utils to get the data tuple. 
         The returned data will be a combination of all snps and 
@@ -192,53 +133,34 @@ class Experiment:
         chrom : list
             List of chromosomes (str type, not int) corresponding to the
             gene list.
-
+        start : int
+            Start position of gene on chromsome.
+        end : int
+            End position of gene on chromsome.
+            
         Returns
         -------
         tuple
             Data tuple containing the following in the respective
             indices:
-            0 - Balanced training data (ndarray)
-            1 - Balanced training labels (ndarray)
-            2 - Balanced testing data (ndarray)
-            3-  Balanced testing label (ndarray)
+            0 - Grouped training data (ndarray)
+            1 - Grouped training labels (ndarray)
+            2 - Grouped testing data (ndarray)
+            3-  Grouped testing label (ndarray)
             4 - Class weights based on training labels (ndarray)
-            5 - Class weights based on testing labels (ndarray)
-            6 - Names of each column in the data arrays (list)
-            7 - Number of SNPs in the data arrays (int)
+            5 - Names of each column in the data arrays (list)
+            6 - Number of SNPs in the data arrays (int)
         """
-        data_arrays = load_data(
-            self.GENOTYPES, self.PHEN_COV, gene, chrom, self.label, self.bp, 
-            self.sys_params['LOGS_BASE_FOLDER'], self.sys_params, self.covs,
-            self.OVER_COEFF, self.BALANCE, self.SNP_THRESH)
+
+        data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+                         chrom=chrom, start=start, end=end, buffer=self.buffer, 
+                         label=self.label, sys_params=self.sys_params, 
+                         covs=self.covs, SNP_thresh=self.SNP_THRESH, 
+                         only_covs=True, lock=None)
         
-        X, y, X_test, y_test, class_weights, data_cols, num_snps = data_arrays
-        self.covs = data_cols[num_snps:]
+        return data
 
-        #######################
-        # ONLY FOR GroupTrain #
-        #######################
-        if len(X.shape) == 3:
-            X_ = X
-            y_ = y
-            X_test_ = X_test
-            y_test_ = y_test
-        else:
-            X_, y_, X_test_, y_test_ = group_data_prep(
-                X, y, X_test, y_test, self.model_params['grp_size'], self.covs, 
-                train_oversample=self.train_oversample, 
-                test_oversample=self.test_oversample)
-        cw_train = compute_class_weight(class_weight='balanced', 
-            classes=np.unique(y_), y=y_)
-        cw_test = compute_class_weight(class_weight='balanced', 
-            classes=np.unique(y_test_), y=y_test_)
-
-        data_tuple = (X_, y_, X_test_, y_test_, cw_train, cw_test, data_cols, 
-            num_snps)
-
-        return data_tuple
-
-    def permloop(self, genes, perms):
+    def parallel_run(self, genes:dict):
         """Invoke training and permutation test for all genes passed to 
         it. Each gene (or set of genes) is invoked parallely using
         multiprocessing.Pool and trained using the corresponding set of
@@ -248,48 +170,22 @@ class Experiment:
         ----------
         genes : dict
             Dictionary containing all the genes. Structure:
-            {
-                'chrom':[[]],
-                'names':[[]]
-            }
-            For single genes, the 'chrom' or 'names' fields should be a list 
-            containing the individual chromosomes or gene names as singleton 
-            lists. For pairs of genes, they should be a list containing 
-            lists representing every pair.
-        perms : int
-            Number of permutations for the permnutation test.
+                {'chrom':list, 'names':list, 'start':list, 'end':list}
         """
+        
         m = mp.Manager()
         lock = m.Lock()
-        perm_batch_size = self.perm_batch_size
         func_args = []
         num_genes = len(genes['names'])
         cnt = 0
-        self.perms = perms
-
         for gene_num, gene in enumerate(genes['names']):
             chrom = genes['chrom'][gene_num]
-            # Skip non-autosomal chromosomes
-            try: 
-                tmp = int(chrom[0])
-            except:                    
-                continue
-
-            # Load PLINK files if not in memory
-            # if chrom[0] not in self.GENOTYPES.keys():
-            #     self.load_plink_files(chrom)
-
-            # Load PLINK files if not in memory
-            if chrom[0] not in self.GENOTYPES.keys():
-                self.GENOTYPES.update(dict({str(chrom[0]):None}))
-
+            start = genes['start'][gene_num]
+            end = genes['end'][gene_num]
             if cnt < len(self.GPU_LIST):
-                print('QUEUEING {:<10} FOR TRAINING {}'.format(
-                    '_'.join(gene), cnt))
-                # devices = [self.GPU_LIST[cnt],]
-                devices = [self.GPU_LIST[cnt],]
-                fa = ([chrom, gene, devices, lock, True])
-                func_args.append(fa)
+                print(f'QUEUEING {gene} FOR TRAINING {cnt}')
+                device = self.GPU_LIST[cnt]
+                func_args.append((chrom, gene, start, end, device, lock, True))
                 cnt+=1
             
             if cnt == len(self.GPU_LIST) or gene_num == num_genes-1:
@@ -297,13 +193,14 @@ class Experiment:
                 with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
                     pool.starmap(self.train_gene, func_args)
                     pool.close()
-                
+                    pool.join()
                 cnt = 0 
                 func_args = []                
 
-    def train_gene(self, chrom, gene, devices, lock, log=True):
-        """Setup and run the NN training for a given gene (or combined
-        set of genes). It also invokes the permutation test after training.
+    def train_gene(self, chrom:str, gene:str, start:int, end:int, 
+                   device:Union[str, int], lock:mp.Lock, log:bool=True) -> None:
+        """Setup and run the NN training for a given gene. It also
+        invokes the permutation test after training.
 
         Parameters
         ----------
@@ -314,11 +211,15 @@ class Experiment:
         gene : list
             List of genes to include in the dataset. For a single gene 
             pass as a singleton list with the gene.
-        devices : list
-            List of GPUs to be used for training the model. The format
+        start : int
+            Start position of gene.
+        end : int
+            End position of gene.
+        device : int, str
+            GPU to be used for training the model. The format
             of each element in the list should be a valid argument for 
             torch.device().
-        lock : multiprocessing.Manager.Lock
+        lock : mp.Lock
             Lock object to prevent issues with concurrent access to the
             log files.
         log : bool, optional
@@ -330,41 +231,30 @@ class Experiment:
         lr = self.hyperparam_dict['lr']
         batch = self.hyperparam_dict['batch']
         epochs = self.hyperparam_dict['epochs']
-        gname = '_'.join(gene)
-        cnum = '_'.join([str(c) for c in chrom])
+        
         try:
-            data_tuple = self.gen_data(gene, [str(c) for c in chrom])
-            
             # Load the data
+            data_tuple = self.__gen_data__(gene, chrom, start, end)
             if data_tuple is None:
                 with open(self.NONE_DATA_FILE, 'a') as f:
-                    f.write('{} has 0 SNPs!!\n'.format(gname))
+                    f.write(f'{gene} has no data file!!\n')
                 return
             
-            X, y, X_test, y_test, cw, cw_test, data_cols, num_snps = data_tuple
-            X = X[:, :, num_snps:]
-            X_test = X_test[:, :, num_snps:]
+            X, y, X_test, y_test, cw, data_cols, num_snps = data_tuple
+            assert num_snps == 0            
 
-            Xw = X
-            Xw_test = X_test
-                
-            gn = gname
-            num_snps = 0
-            nsnps = num_snps
-
-            print('{:20} Group train data: {}'.format(gn, Xw.shape))
-            print('{:20} Group test data: {}'.format(gn, Xw_test.shape))
-            print('{:20} Class weights: {} {}'.format(gn, cw, cw_test))
+            print(f'{gene:20} Group train data: {X.shape}')
+            print(f'{gene:20} Group test data: {X_test.shape}')
+            print(f'{gene:20} Class weights: {cw}')
 
             # Model Parameters
             model_dict = {}
-            model_dict['model_name'] = '{}_{}'.format(str(nsnps), gn)
-            self.model_params['inp'] = Xw.shape[2]
+            model_dict['model_name'] = f'{num_snps}_{gene}'
+            self.model_params['inp'] = X.shape[2]
             self.model_params['enc'] = 8
             model_dict['model_type'] = self.model
             model_dict['model_args'] = self.model_params
         
-
             # Optimiser Parameters
             optim_dict = {}
             optim_dict['LR'] = lr 
@@ -380,7 +270,7 @@ class Experiment:
 
             # Create all folders needed for saving training information
             if log:
-                gene_dir = '{}/{}'.format(self.model_dir, gn)
+                gene_dir = '{}/{}'.format(self.model_dir, gene)
                 train_dict['log'] = gene_dir
                 if not os.path.isdir(gene_dir):
                     os.mkdir(gene_dir)
@@ -388,35 +278,86 @@ class Experiment:
                 train_dict['log'] = None
 
             # If saved model exists, then skip retraining
-            if not os.path.isfile('{}/{}_{}.pt'.format(
-                gene_dir, model_dict['model_name'], 'Ep{}'.format(epochs-1))):
+            if not os.path.isfile(f'{gene_dir}/{model_dict["model_name"]}_Ep{epochs-1}.pt'):
                 
                 with open(self.TRAIN_FILE, 'a') as f:
-                    f.write('{:20} Training start\n'.format(gname))
+                    f.write(f'{gene:20} Training start\n')
 
-                # Train the NN on the gene/group of genes
-                start = datetime.datetime.now()
-                train(Xw, y, Xw_test, y_test, nsnps, model_dict, optim_dict,
-                    train_dict, devices)
-                end = datetime.datetime.now()
+                # Train the NN on the gene
+                st = datetime.datetime.now()
+                best_acc, best_loss = train(X=X, y=y, X_test=X_test, y_test=y_test, 
+                                model_dict=model_dict, optim_dict=optim_dict, 
+                                train_dict=train_dict, device=device)
+                et = datetime.datetime.now()
                 
                 with open(self.TRAIN_FILE, 'a') as f:
-                    f.write('{:20} Training time: {}\n'.format(
-                        gn, end-start))
+                    f.write(f'{gene:20} Training time: {et-st}\n')
+                
+                self.__write_gene_summary_row__(gene=gene, chrom=chrom, 
+                                    num_snps=num_snps, acc=best_acc, 
+                                    loss=best_loss, time_taken=str(et-st), 
+                                    lock=lock)
                 
             # Make training plots
             create_train_plots(gene_dir, ['acc'], suffix='acc', sweight=0.0)
-
-            # Start the permutation test
-            self.start_ptest(cnum, gn, self.perms, 
-                (Xw_test, y_test, cw_test, data_cols, nsnps),
-                devices[0], lock)
-
         except:
             with open(self.TRAIN_ERR_FILE, 'a') as errf:
-                errf.write(gname + '\n')
+                errf.write(gene + '\n')
                 errf.write('='*20 + '\n')
                 errf.write(traceback.format_exc() + '\n\n')
+
+    def __write_gene_summary_row__(self, gene:str, chrom:str, num_snps:int, acc:float, 
+                               loss:float, time_taken:str, lock:mp.Lock) -> None:
+        """_summary_
+
+        Parameters
+        ----------
+        gene : str
+            _description_
+        chrom : str
+            _description_
+        num_snps : int
+            _description_
+        acc : float
+            _description_
+        loss : float
+            _description_
+        time_taken : str
+            _description_
+        lock : mp.Lock
+            _description_
+        """
+        lock.acquire()
+        
+        # If files exists, read data first to include new genes that 
+        # might have completed parallely in a different process
+        if os.path.isfile(self.summary_f):
+            summ_df = pd.read_csv(self.summary_f)
+            summ_df.set_index('Gene', drop=False, inplace=True)
+        else:
+            summ_df = pd.DataFrame(columns=['Gene', 'Chrom', 'Type', 'SNPs', 
+                                            'Acc', 'Loss', 'Time'])
+
+        csv_row = {
+            'Gene':[gene,],
+            'Chrom':[chrom,],
+            'Type':[self.gene_type,],
+            'SNPs':[num_snps,],
+            'Acc':[acc,],
+            'Loss':[loss,],
+            'Time':[time_taken,]
+        }
+        tdf = pd.DataFrame.from_dict(csv_row)
+        tdf.set_index('Gene', drop=False, inplace=True)
+        if gene in summ_df.Gene.values:
+            summ_df.update(tdf)
+        else:
+            summ_df = summ_df.append(tdf, verify_integrity=True)
+        
+        # Write data back to file so all parallel processes have
+        # consistent data
+        summ_df.to_csv(self.summary_f, index=False)
+        lock.release()
 
     def start_ptest(self, chrom, gene, perms, data_tuple, device, lock):
         """Function to setup and run the permutation test for a given gene or 

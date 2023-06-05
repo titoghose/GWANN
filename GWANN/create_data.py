@@ -1,4 +1,7 @@
 import sys
+from typing import Optional
+
+import pandas as pd
 sys.path.append('.')
 
 import warnings
@@ -8,19 +11,28 @@ import os
 import yaml
 import shutil
 import numpy as np 
+import traceback
 import multiprocessing as mp
 from functools import partial
 
-from GWANN.dataset_utils import *
+from GWANN.dataset_utils import PGEN2Pandas, load_data
 from GWANN.models import *
 from GWANN.train_utils import FastTensorDataLoader
 
-def return_data(lock, sys_params, covs, flanking, label, 
-        gene_dict, only_covs=False, SNP_thresh=10000, ret_data=False):
-    """Invokes the data creation pipeline for a gene.
+def return_data(gene_dict:dict, chrom:str, lock:mp.Lock, sys_params:dict, 
+                covs:list, buffer:int, label:str, only_covs:bool=False, 
+                SNP_thresh:int=10000, ret_data:bool=False) -> Optional[tuple]:
+    """Invokes the data creation pipeline for a set of genes.
 
     Parameters
     ----------
+    gene_dict : dict
+        Dictionaty containing gene name, chromosome, start position and 
+        end position. Each value should be a list. 
+        Eg. {'names':['G1', 'G2'], 'chrom':['19', '19'], 'start':[100,200],
+        'end':[150, 250]}
+    chrom : str
+        Chromosome name.
     lock : multiprocessing.Lock
         Lock object to aid process synchronisation. 
     sys_params : dict
@@ -28,15 +40,11 @@ def return_data(lock, sys_params, covs, flanking, label,
         ids etc.
     covs : list
         List of covariates.
-    flanking : int
+    buffer : int
         Number of flanking base pairs to consider as part of the gene 
         while creating the data, by default 2500.
     label : str
         Phenotype label.
-    gene_dict : dict
-        Dictionaty containing gene name ('names'), chromosome ('chrom')
-        and entrez_id ('id'). Each value should be a singleton list. 
-        Eg. {'names':['APOE',], 'chrom':['19',], 'id':[348,]}
     only_covs : bool, optional
         Whether to create data using only covariates (True) or covariates and
         SNPs (False), by default False.
@@ -55,34 +63,36 @@ def return_data(lock, sys_params, covs, flanking, label,
         if ret_data == False, 0
     """
    
-    chrom = gene_dict['chrom'][0]
-    geno = None
-    phen_cov = [] 
-    if int(chrom) <= 10:
-        gf = '{}/ukb_imp_chr{}_v3_cleaned_geno_hwe_maf_2.bed'.format(
-            sys_params['RAW_BASE_FOLDER'][0], chrom)
-        pf = '{}/Variables_UKB.txt'.format(sys_params['RAW_BASE_FOLDER'][0])
-    else:
-        gf = '{}/ukb_imp_chr{}_v3_cleaned_geno_hwe_maf_2.bed'.format(
-            sys_params['RAW_BASE_FOLDER'][1], chrom)
-        pf = '{}/Variables_UKB.txt'.format(sys_params['RAW_BASE_FOLDER'][0])
+    pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
+    train_ids = pd.read_csv(sys_params["TRAIN_IDS_PATH"], 
+                            dtype={'iid':str})['iid'].to_list()
+    test_ids = pd.read_csv(sys_params["TEST_IDS_PATH"],
+                           dtype={'iid':str})['iid'].to_list()
+    pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=train_ids+test_ids)
     
-    phen_cov = pd.read_csv(pf, sep=' ', dtype={'ID_1':np.int})
+    phen_cov = pd.read_csv(sys_params['PHEN_COV_PATH'], 
+                           sep=' ', dtype={'ID_1':str}, comment='#')
     phen_cov = phen_cov.rename(columns={'ID_1':'iid'})
     phen_cov.index = phen_cov['iid']
     
-    geno = read_plink1_bin(gf, ref='a0')
-    geno = remove_indel_multiallelic(geno)
-    
     for i, gene in enumerate(gene_dict['names']):
-        chrom = gene_dict['chrom'][i]
-        data = load_data(
-            {chrom:geno}, phen_cov, [gene,], [chrom,], label, flanking, 
-            sys_params['RUNS_BASE_FOLDER'], 
-            sys_params, covs,
-            SNP_thresh=SNP_thresh,
-            only_covs=only_covs,
-            lock=lock)
+        data = None
+        try:
+            data = load_data(pg2pd, phen_cov, gene, chrom, gene_dict['start'][i], 
+                         gene_dict['end'][i], buffer, label, sys_params, covs, 
+                         SNP_thresh, only_covs, lock)
+        except Exception:
+            print(f'[{gene}] - Data creating error. Check {sys_params["DATA_LOGS"]}')
+            if lock is not None:
+                lock.acquire()
+                with open(sys_params['DATA_LOGS'], 'a') as f:
+                    f.write(f'\n{gene}\n')
+                    f.write('--------------------\n')
+                    f.write(traceback.format_exc())
+                lock.release()
+            else:
+                pass
+
         if data is None:
             continue
         print('Train data shape for {}: {}'.format(gene, data[0].shape))
@@ -90,10 +100,12 @@ def return_data(lock, sys_params, covs, flanking, label,
     if ret_data:
         return data
     else:
-        return 0
+        return None
     
-def create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
-    flanking=2500, num_procs_per_chrom=2):
+def create_data_for_run(label:str, chrom:str, glist:Optional[list], 
+                        sys_params:dict, covs:list, gene_map_file:str, 
+                        buffer:int=2500, SNP_thresh:int=10000, 
+                        num_procs_per_chrom:int=2) -> None:
     """Create data files for a set of genes on a chromosome.
 
     Parameters
@@ -102,9 +114,9 @@ def create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file,
         Phenotyoe label.
     chrom : str, int
         Chromosome.
-    glist : list
+    glist : Optional[list]
         List of gene symbols to create data for. To create data for all
-        genes on the chromosome, pass an empty list [].
+        genes on the chromosome, pass None.
     sys_params : dict
         Dictionary of system parameters eg. path to data, path to test
         ids etc.
@@ -112,7 +124,7 @@ def create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file,
         List of covariates.
     gene_map_file : str
         Path to the file containing the map of genes to their annotations.
-    flanking : int, optional
+    buffer : int, optional
         Number of flanking base pairs to consider as part of the gene 
         while creating the data, by default 2500.
     num_procs_per_chrom : int, optional
@@ -124,117 +136,95 @@ def create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file,
     genes_df = genes_df.astype({'chrom':str})
     genes_df.set_index('symbol', drop=False, inplace=True)
     genes_df = genes_df.loc[genes_df['chrom'] == str(chrom)]
-    if len(glist) != 0:
+    if len(glist) is not None:
         genes_df = genes_df.loc[genes_df['symbol'].isin(glist)]
-
+    
     if len(genes_df) == 0:
         print('No genes found with given chrom and glist')
         return
     
-    genes = {
-        'names': genes_df['symbol'].tolist()[0:],
-        'chrom': genes_df['chrom'].tolist()[0:],
-        'ids': genes_df['id'].tolist()[0:]}
-
-    g, c, i = [], [], []
-    done = []
-    for gi, gene in enumerate(genes['names']):
-        chrom = genes['chrom'][gi]
-        data_path = '{}/chr{}_{}_{}bp_{}.csv'.format(
-            sys_params['DATA_BASE_FOLDER'], chrom, gene, flanking, label)        
+    gdict = {'names':[], 'start':[], 'end':[]}
+    for _, r in genes_df.iterrows():
+        g = r['symbol']
+        s = r['start']
+        e = r['end']
+        data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
+                    f'chr{chrom}_{g}_{buffer}bp_{label}.csv')
         if not os.path.isfile(data_path):
-            g.append(gene)
-            c.append(chrom)
-            i.append(genes['ids'][gi]) 
+            gdict['names'].append(g)
+            gdict['start'].append(s)
+            gdict['end'].append(e)
         else:
-            print('Data file for {} exists at {}'.format(gene, data_path))
-            done.append(gene)
+            print(f'Data file for {g} exists at {data_path}')
             continue
-
-    genes = {'names': g, 'chrom': c, 'ids': i}
-    if len(genes['names']) == 0:
+        
+    if len(gdict['names']) == 0:
         print('No genes left to create data for.')
         return
-    print('Creating data for {} genes'.format(len(genes['names'])))
-    assert len(np.unique(genes['chrom'])) == 1, print('More than one chromosome found, aborting!')
-
-    i = 0
+    
+    print(f'Creating data for {len(gdict["names"])} genes')
+    
     ds = []
-    num_procs = min(len(genes['names']), num_procs_per_chrom)
-    gene_wins = np.array_split(genes['names'], num_procs)
-    chrom_wins = np.array_split(genes['chrom'], num_procs)
-    ind_wins = np.array_split(genes['ids'], num_procs)
-    for gw, cw, iw in zip(gene_wins, chrom_wins, ind_wins):
+    num_procs = min(len(gdict['names']), num_procs_per_chrom)
+    split_idxs = np.array_split(np.arange(len(gdict['names'])), num_procs)
+    for sidxs in split_idxs:
         d_win = {}
-        d_win['names'] = gw
-        d_win['chrom'] = cw
-        d_win['ids'] = iw
+        for k in gdict.keys():
+            d_win[k] = [gdict[k][si] for si in sidxs]
         ds.append(d_win)
 
     with mp.Pool(num_procs) as pool:
         lock = mp.Manager().Lock()
         par_func = partial(return_data, 
-            lock, sys_params, covs, flanking, label,
-            ret_data=False, SNP_thresh=10000)
-        _ = pool.map(par_func, ds)
+            chrom=chrom, lock=lock, sys_params=sys_params, covs=covs, 
+            buffer=buffer, label=label, ret_data=False, SNP_thresh=SNP_thresh)
+        pool.map(par_func, ds)
         pool.close()
         pool.join()
 
-def split(sys_params, covs, label, base_folder, lock, gs):
+def split(genes:list, covs:list, label:str, read_base:str, 
+          write_base:str) -> None:
+    """Split gene datasets into windows of 50 SNPs.
+
+    Parameters
+    ----------
+    genes : list
+        List of gene data file names.
+    covs : list
+        List of covariate columns in the data.
+    label : str
+        Name of the label/phenotype in the data.
+    read_base : str
+        Base folder to read data from. 
+    write_base : str
+        Base folder to write data to. 
+    """
     
-    for g in gs:
-        gname = g.split('_')[1]
-        df_path = '{}/_Data/{}'.format(base_folder, g)
-        df = pd.read_csv(df_path)
-        
+    for gene_file in genes:
+        df_path = f'{read_base}/{gene_file}'
+        df = pd.read_csv(df_path, index_col=0, comment='#')
         data_cols = df.columns.to_list()
-
-        temp_df = df.copy()
-        temp_df.dropna(
-            axis='columns', thresh=np.ceil(0.95*len(temp_df)), inplace=True)
-        assert len(temp_df) <= len(df)
-
-        retained_cols = temp_df.columns.to_list()
-        retained_cols = set(retained_cols).union(set(covs))
-        retained_cols = list(retained_cols.union(set(['iid', label])))
-        
-        cols = [d for d in data_cols if d in retained_cols]
-        df = df[cols]
-
-        num_snps = len([c for c in cols if 'rs' in c])
+        num_snps = len(data_cols) - len(covs) - 1
         snp_win = 50
         num_win = int(np.ceil(num_snps/snp_win))
         remaining_snps = num_snps
         # sample_win = np.random.choice(np.arange(0, num_win), 1)
         # sample_win = gsplit[gname]
-
-        if lock is not None:
-            lock.acquire()
-            nsdf = pd.read_csv(
-                '{}/num_snps.csv'.format(sys_params['RUNS_BASE_FOLDER']))
-            nsdf.loc[nsdf['Gene'] == gname, 'num_snps'] = num_snps
-            nsdf.to_csv(
-                '{}/num_snps.csv'.format(sys_params['RUNS_BASE_FOLDER']), 
-                index=False)
-            lock.release()
-
-        f_split = g.split('_')
         for win in range(num_win):
             sind = win * snp_win
             eind = sind+remaining_snps if remaining_snps < snp_win else (win+1)*snp_win
             nsnps = eind-sind
             
-            f_split_win = copy.copy(f_split)
-            f_split_win[1] = '{}_{}'.format(f_split_win[1], win)
-            f_win = '{}/Data/{}'.format(base_folder, '_'.join(f_split_win))
+            split_f = gene_file.split('_')
+            split_f[1] = f'{split_f[1]}_{win}'
+            f_win = f'{write_base}/{"_".join(split_f)}'
 
-            cols_win = ['iid',] + cols[sind+1:eind+1] + covs + [label]
+            cols_win = data_cols[sind+1:eind+1] + covs + [label,]
             df_win = df[cols_win].copy()
-            assert nsnps == len([c for c in df_win.columns.to_list() if 'rs' in c])
             
             # if win == sample_win:
             #     df_win.to_csv(f_win, index=False)
-            df_win.to_csv(f_win, index=False)
+            df_win.to_csv(f_win)
 
             remaining_snps = remaining_snps - nsnps
 

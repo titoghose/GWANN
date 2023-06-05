@@ -123,6 +123,6 @@ class BasicNN(nn.Module):
                                          self.bnorms, self.activation):
             
             # X = l(bnorm(activ(drop(X))))
-            X = l(drop(activ(bnorm(X))))
+            X = l(drop(bnorm(activ(X))))
             
         return X

@@ -26,6 +26,7 @@ plt.rcParams['svg.fonttype'] = 'none'
 from adjustText import adjust_text
 
 from GWANN.models import *
+from GWANN.models import *
 from GWANN.dataset_utils import *
 
 from sklearn import metrics
@@ -1113,13 +1114,13 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     class_weights = training_dict['class_weights']
     
     if Xt is not None:
-        train_ind = torch.cat((train_ind, val_ind))
+        train_ind = np.concatenate((train_ind, val_ind))
         Xval, yval = Xt, yt
     else:
         Xval, yval = X[val_ind], y[val_ind]
 
     train_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
-        batch_size=batch_size, shuffle=False)
+        batch_size=batch_size, shuffle=True)
     train_inf_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
         batch_size=8192, shuffle=False)
     val_dataloader = FastTensorDataLoader(Xval, yval, 
@@ -1313,10 +1314,14 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     if not use_scheduler:
         scheduler = None
 
+    train_ind = np.arange(X.shape[0])
+    np.random.seed(6211)
+    np.random.shuffle(train_ind)
+
     training_dict = {
         'model_name': model_name,
-        'train_ind': torch.arange(X.shape[0]).long(),
-        'val_ind': torch.tensor([]).long(),
+        'train_ind': train_ind,
+        'val_ind': np.array([], dtype=int),
         'loss_fn': loss_fn,
         'optimiser':optimiser,
         'scheduler': scheduler,

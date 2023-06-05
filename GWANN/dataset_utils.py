@@ -385,23 +385,27 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
                                  label=label, covs=covs, sys_params=sys_params)    
     num_snps = data_tuple[-1]
     if lock is not None:
-        lock.acquire()
-        data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
         try:
-            df = pd.read_csv(data_stats_f)
-        except FileNotFoundError:
-            df = pd.DataFrame(columns=['Gene', 'chrom', 'buffer', 'num_snps', 'label'])
-            
-        df = df.append({
-            'Gene': gene,
-            'chrom': chrom,
-            'start': start-buffer,
-            'end': end+buffer,
-            'buffer': buffer,
-            'num_snps': num_snps,
-            'label': label}, ignore_index=True)
-        df.to_csv(data_stats_f, index=False)
-        lock.release()
+            lock.acquire()
+            data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
+            try:
+                df = pd.read_csv(data_stats_f)
+            except FileNotFoundError:
+                df = pd.DataFrame(columns=['Gene', 'chrom', 'buffer', 'num_snps', 'label'])
+                
+            df = df.append({
+                'Gene': gene,
+                'chrom': chrom,
+                'start': start-buffer,
+                'end': end+buffer,
+                'buffer': buffer,
+                'num_snps': num_snps,
+                'label': label}, ignore_index=True)
+            df.to_csv(data_stats_f, index=False)
+        except Exception:
+            raise Exception
+        finally:
+            lock.release()
     
     return data_tuple
 
@@ -511,7 +515,8 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     
     # Scale each feature between 0 and 1
     mm_scaler = MinMaxScaler()
-    scaled_train_df = mm_scaler.fit_transform(train_df)
+    mm_scaler.fit(train_df)
+    scaled_train_df = mm_scaler.transform(train_df)
     train_df.iloc[:, :-1] = scaled_train_df[:, :-1]
     
     scaled_test_df = mm_scaler.transform(test_df)
@@ -520,8 +525,8 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     # Convert data into grouped samples
     grps = np.load(f'{sys_params["PARAMS_PATH"]}/group_ids_{label}.npz')
     grp_size = grps['train_grps'].shape[1]
-    train_grps = np.asarray(grps['train_grps'].flatten(), dtype=str)
-    test_grps = np.asarray(grps['test_grps'].flatten(), dtype=str)
+    train_grps = np.asarray(grps['train_grps'].flatten(), dtype=int).astype(str)
+    test_grps = np.asarray(grps['test_grps'].flatten(), dtype=int).astype(str)
     
     X = train_df.loc[train_grps][data_cols].to_numpy()
     X = np.reshape(X, (-1, grp_size, X.shape[-1]))

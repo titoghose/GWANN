@@ -51,13 +51,13 @@ if __name__ == '__main__':
             'optimiser': 'adam',
             'lr': 1e-4,
             'batch': 256,
-            'epochs': 50,
+            'epochs': 200,
         }
         exp = Experiment(prefix=exp_name, 
                 label=label, 
                 params_base='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
                 buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
-                gpu_list=list(np.repeat([0, 1], 1)))
+                gpu_list=list(np.repeat([5, 6], 1)))
 
         genes = {'names':[], 'chrom':[], 'start':[], 'end':[]}
         genes['names'] = df['symbol'].to_list()

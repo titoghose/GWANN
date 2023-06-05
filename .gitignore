@@ -3,3 +3,4 @@
 *.csv
 **/NN_Logs
 **/Runs
+.python-version

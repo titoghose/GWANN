@@ -4,6 +4,7 @@ import os
 import traceback
 from functools import partial
 from typing import Optional
+import csv
 
 import numpy as np
 import pandas as pd
@@ -339,6 +340,8 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         5 - Names of each column in the data arrays (list)
         6 - Number of SNPs in the data arrays (int)
     """
+    log_creation = lock is not None
+
     test_ids_f = sys_params['TEST_IDS_PATH']
     test_ids = pd.read_csv(test_ids_f, dtype={'iid':str})['iid'].to_list()
     
@@ -352,9 +355,10 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat = pd.read_csv(data_path, index_col=0, comment='#')
         data_mat.index = data_mat.index.astype(str)
         data_mat = data_mat.loc[train_ids+test_ids]
+        log_creation = False
     else:
-        data_mat = pg2pd.get_dosage_matrix(chrom, start-buffer, end+buffer, 
-                                           SNP_thresh)
+        data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start-buffer, 
+                                        end=end+buffer, SNP_thresh=SNP_thresh)
         if data_mat is None:
             return None
         
@@ -384,26 +388,23 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
                                  label=label, covs=covs, sys_params=sys_params)    
     num_snps = data_tuple[-1]
-    if lock is not None:
+    if log_creation:
         try:
             lock.acquire()
             data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
-            try:
-                df = pd.read_csv(data_stats_f)
-            except FileNotFoundError:
-                df = pd.DataFrame(columns=['Gene', 'chrom', 'buffer', 'num_snps', 'label'])
-                
-            df = df.append({
-                'Gene': gene,
-                'chrom': chrom,
-                'start': start-buffer,
-                'end': end+buffer,
-                'buffer': buffer,
-                'num_snps': num_snps,
-                'label': label}, ignore_index=True)
-            df.to_csv(data_stats_f, index=False)
-        except Exception:
-            raise Exception
+            header = ['Gene', 'chrom', 'start', 'end', 'num_snps', 'label']
+            data_info = [gene, chrom, str(start-buffer), str(end+buffer), num_snps, label]
+            if os.path.isfile(data_stats_f):
+                rows = [data_info]
+            else:
+                rows = [header, data_info]
+        
+            with open(data_stats_f, 'a') as f:
+                writer = csv.writer(f)
+                writer.writerows(rows)
+        
+        except Exception as e:
+            raise e
         finally:
             lock.release()
     

@@ -1,3 +1,4 @@
+import os
 import sys
 
 sys.path.append('/home/upamanyu/GWANN')
@@ -236,28 +237,6 @@ def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
         plt.savefig('{}/sex_dist_{}.png'.format(param_folder, label))
         plt.close()
 
-def create_cov_only_data(label:str, param_folder:str, chrom:str, 
-                         SNP_thresh:int=10000) -> None:
-    gene_map_file='/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv'
-    with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
-        sys_params = yaml.load(f, Loader=yaml.FullLoader)
-    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
-        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
-
-    genes_df = pd.read_csv(gene_map_file, comment='#', dtype={'chrom':str})
-    genes_df.drop_duplicates('symbol', inplace=True)
-    genes_df = genes_df.loc[genes_df['symbol'].isin(['BCR', 'RBFOX2'])]
-
-    lock = mp.Manager().Lock()
-    write_and_return_data(
-        gene_dict=dict(
-                    names=genes_df['symbol'].to_list(),
-                    chrom=genes_df['symbol'].to_list(),
-                    start=genes_df['start'].to_list(),
-                    end=genes_df['end'].to_list()),
-        chrom=chrom, lock=lock, sys_params=sys_params, covs=covs, buffer=2500, 
-        label=label, only_covs=True, SNP_thresh=SNP_thresh, ret_data=False)
-
 def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000,
                     glist:Optional[list]=None, num_procs:int=20) -> None:
     
@@ -319,10 +298,7 @@ if __name__ == '__main__':
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
     for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
-        # create_csv_data(label=label, 
-        #                 param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
-        #                 chrom='22', 
-        #                 glist=['BCR'])
-        create_cov_only_data(label=label, 
-                            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
-                            chrom='22')
+        create_csv_data(label=label, 
+                        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
+                        chrom='22', 
+                        glist=['BCR'])

@@ -283,10 +283,12 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
 def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, buffer:int, label:str, 
               sys_params:dict, covs:list, SNP_thresh:int=10000, 
-              only_covs:bool=False, 
+              only_covs:bool=False, preprocess:bool=True,
               lock:Optional[mp.Lock]=None) -> Optional[tuple]:
     """Load data, balance it and obtain train-test splits 
-    before training.
+    before training. If the preprocess argument is False (by default
+    True), this function will simply create and save the data to disk 
+    and return None.
 
     Parameters
     ----------
@@ -322,6 +324,9 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         than this will be dropped, by default 10000
     only_covs : bool, optional
         Return a dataframe of only covariates, without any SNPs.
+    preprocess: bool, optional
+        Whether to preprocess data or notm by default True. If the
+        objective is simply to create and save data to dislk, pass False.
     lock : mp.Lock, optional
         Lock object to prevent issues with concurrent access during read
         and write. Pass None to prevent logging of data stats, by default None.
@@ -341,6 +346,7 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         6 - Number of SNPs in the data arrays (int)
     """
     log_creation = lock is not None
+    save_data = True
 
     test_ids_f = sys_params['TEST_IDS_PATH']
     test_ids = pd.read_csv(test_ids_f, dtype={'iid':str})['iid'].to_list()
@@ -355,7 +361,7 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat = pd.read_csv(data_path, index_col=0, comment='#')
         data_mat.index = data_mat.index.astype(str)
         data_mat = data_mat.loc[train_ids+test_ids]
-        log_creation = False
+        save_data = False
     else:
         data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start-buffer, 
                                         end=end+buffer, SNP_thresh=SNP_thresh)
@@ -366,10 +372,18 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat = data_mat.loc[train_ids+test_ids]
         data_mat = pd.merge(data_mat, phen_cov[covs+[label,]].loc[train_ids+test_ids], 
                             left_index=True, right_index=True)
-
+    
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
-    
+
+    if only_covs:
+        data_mat = data_mat[covs+[label,]]
+
+    # Save dataframe to disk
+    if save_data:
+        data_mat.to_csv(data_path)
+        print(f'[{gene}] Data written.')
+
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
     
@@ -378,17 +392,15 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     assert not np.any(pd.isna(test_df)), \
             f'[{gene}]: Test dataframe contains NaN values'
 
-    if only_covs:
-        train_df = train_df[covs+[label,]]
-        test_df = test_df[covs+[label,]]
+    data_tuple = None
+    if preprocess:
+        data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
+                                    label=label, covs=covs, sys_params=sys_params)    
+        num_snps = data_tuple[-1]
+    else:
+        num_snps = train_df.shape[-1] - len(covs) - 1
 
-    # Save dataframe to disk        
-    pd.concat((train_df, test_df)).to_csv(data_path)
-
-    data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
-                                 label=label, covs=covs, sys_params=sys_params)    
-    num_snps = data_tuple[-1]
-    if log_creation:
+    if log_creation and save_data:
         try:
             lock.acquire()
             data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
@@ -456,7 +468,7 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     train_ids_f = sys_params['TRAIN_IDS_PATH']
     train_ids = pd.read_csv(train_ids_f, dtype={'iid':str})['iid'].to_list()
 
-    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/' +
+    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/wins/' +
                 f'chr{chrom}_{gene}_{win}_{buffer}bp_{label}.csv')
 
     data_mat = pd.read_csv(data_path, index_col=0, comment='#')
@@ -600,7 +612,7 @@ def balance_by_agesex(data:pd.DataFrame, label_col:str) -> pd.DataFrame:
 def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock], 
                 sys_params:dict, covs:list, buffer:int, label:str, 
                 only_covs:bool=False, SNP_thresh:int=10000, 
-                ret_data:bool=False) -> Optional[tuple]:
+                preprocess:bool=False, ret_data:bool=False) -> Optional[tuple]:
     """Invokes the data creation pipeline for a set of genes.
 
     Parameters
@@ -631,6 +643,9 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
         Maximum number of SNPs to consider. If a gene has more than this
         many SNPs, the file will not be created for the gene, by defailt
         10000.
+    preprocess: bool, optional
+        Whether to preprocess data or notm by default True. If the
+        objective is simply to create and save data to dislk, pass False.
     ret_data : bool, optional
         Whether to return the created data or not, by default False.
     
@@ -657,9 +672,11 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
     for i, gene in enumerate(gene_dict['names']):
         data = None
         try:
-            data = load_data(pg2pd, phen_cov, gene, chrom, gene_dict['start'][i], 
-                         gene_dict['end'][i], buffer, label, sys_params, covs, 
-                         SNP_thresh, only_covs, lock)
+            data = load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=gene, 
+                        chrom=chrom, start=gene_dict['start'][i], 
+                        end=gene_dict['end'][i], buffer=buffer, label=label, 
+                        sys_params=sys_params, covs=covs, SNP_thresh=SNP_thresh, 
+                        only_covs=only_covs, preprocess=preprocess, lock=lock)
         except Exception:
             print(f'[{gene}] - Data creating error. Check {sys_params["DATA_LOGS"]}')
             if lock is not None:
@@ -669,8 +686,6 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
                     f.write('--------------------\n')
                     f.write(traceback.format_exc())
                 lock.release()
-            else:
-                pass
 
         if data is None:
             continue
@@ -684,7 +699,7 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
 def create_data_for_run(label:str, chrom:str, glist:Optional[list], 
                         sys_params:dict, covs:list, gene_map_file:str, 
                         buffer:int=2500, SNP_thresh:int=10000, 
-                        num_procs_per_chrom:int=2) -> None:
+                        preprocess:bool=True, num_procs_per_chrom:int=2) -> None:
     """Create data files for a set of genes on a chromosome.
 
     Parameters
@@ -706,6 +721,12 @@ def create_data_for_run(label:str, chrom:str, glist:Optional[list],
     buffer : int, optional
         Number of flanking base pairs to consider as part of the gene 
         while creating the data, by default 2500.
+    SNP_thresh: int, optional
+        Maximum number of SNPs allowed in data. If number of SNPs
+        exceeds this value, data will not be created, by default 10000.
+    preprocess: bool, optional
+        Whether to preprocess data or notm by default True. If the
+        objective is simply to create and save data to dislk, pass False.
     num_procs_per_chrom : int, optional
         Number of CPU cores to assign for the task, by default 2.
     """
@@ -752,11 +773,12 @@ def create_data_for_run(label:str, chrom:str, glist:Optional[list],
             d_win[k] = [gdict[k][si] for si in sidxs]
         ds.append(d_win)
 
+    lock = mp.Manager().Lock()
     with mp.Pool(num_procs) as pool:
-        lock = mp.Manager().Lock()
         par_func = partial(write_and_return_data, 
             chrom=chrom, lock=lock, sys_params=sys_params, covs=covs, 
-            buffer=buffer, label=label, ret_data=False, SNP_thresh=SNP_thresh)
+            buffer=buffer, label=label, ret_data=False, SNP_thresh=SNP_thresh, 
+            preprocess=preprocess)
         pool.map(par_func, ds)
         pool.close()
         pool.join()
@@ -778,7 +800,6 @@ def split(genes:list, covs:list, label:str, read_base:str,
     write_base : str
         Base folder to write data to. 
     """
-    
     for gene_file in genes:
         df_path = f'{read_base}/{gene_file}'
         df = pd.read_csv(df_path, index_col=0, comment='#')

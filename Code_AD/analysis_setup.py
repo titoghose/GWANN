@@ -20,8 +20,7 @@ import scipy.stats as stats
 from sklearn.model_selection import StratifiedShuffleSplit
 
 from GWANN.dataset_utils import (balance_by_agesex, create_data_for_run,
-                                 create_groups, group_ages, split,
-                                 write_and_return_data)
+                                 create_groups, group_ages, split)
 from GWANN.utils import vprint
 
 
@@ -238,7 +237,8 @@ def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
         plt.close()
 
 def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000,
-                    glist:Optional[list]=None, num_procs:int=20) -> None:
+                    glist:Optional[list]=None, num_procs:int=20, 
+                    split:bool=True) -> None:
     
     gene_map_file='/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv'
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
@@ -249,9 +249,12 @@ def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000
     create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
                         buffer=2500, SNP_thresh=SNP_thresh, 
                         num_procs_per_chrom=num_procs)
-    create_gene_wins(sys_params, covs, num_procs=num_procs)
+    if split:
+        create_gene_wins(sys_params=sys_params, covs=covs, label=label, 
+                         num_procs=num_procs, genes=None)
 
-def create_gene_wins(sys_params:dict, covs:list, num_procs:int) -> None:
+def create_gene_wins(sys_params:dict, covs:list, label:str, 
+                     num_procs:int, genes:Optional[list]=None) -> None:
     """Split data files into windows for training. First move data files
     into a new folder and create an empty folder.
 
@@ -262,25 +265,21 @@ def create_gene_wins(sys_params:dict, covs:list, num_procs:int) -> None:
     covs : list
         _description_
     """
-    
-    dp = sys_params['DATA_BASE_FOLDER'].split('/')
-    dp[-1] = f'_{dp[-1]}'
-    new_dp = '/'.join(dp)
-    print(f'Moving data to {new_dp}.')
-    print((f'Creating new folder {sys_params["DATA_BASE_FOLDER"]} for'+ 
-           f' data split into windows'))
-    shutil.move(sys_params['DATA_BASE_FOLDER'], new_dp)
-    os.mkdir(sys_params['DATA_BASE_FOLDER'])
-    
-    read_base = new_dp
-    write_base = sys_params['DATA_BASE_FOLDER']
+    wins_folder = f'{sys_params["DATA_BASE_FOLDER"]}/wins'
+    if not os.path.exists(wins_folder):
+        print((f'Creating new folder {wins_folder} for data split into windows'))
+        os.mkdir(wins_folder)
 
-    glist = os.listdir(new_dp)
+    glist = [g for g in os.listdir(sys_params["DATA_BASE_FOLDER"]) if g.endswith('.csv')]
+    if genes is not None:
+        glist = [g for g in glist if any([gene in g for gene in genes])]
+    print(len(glist))
     num_procs = min(num_procs, len(glist))
     glist = np.array_split(glist, num_procs)
     with mp.Pool(num_procs) as pool:
-        par_split = partial(split, covs=covs, label=label, read_base=read_base, 
-                            write_base=write_base)
+        par_split = partial(split, covs=covs, label=label, 
+                            read_base=sys_params["DATA_BASE_FOLDER"], 
+                            write_base=wins_folder)
         pool.map(par_split, glist)
         pool.close()
         pool.join()
@@ -297,8 +296,8 @@ if __name__ == '__main__':
     #     param_folder='./params', 
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
-    for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
+    for label in ['PATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
         create_csv_data(label=label, 
                         param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
-                        chrom='22', 
-                        glist=['BCR'])
+                        chrom='19', 
+                        glist=['APOE', 'APOC1', 'TOMM40'])

@@ -295,9 +295,4 @@ if __name__ == '__main__':
     # filter_ids(
     #     param_folder='./params', 
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
-    
-    for label in ['PATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
-        create_csv_data(label=label, 
-                        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
-                        chrom='19', 
-                        glist=['APOE', 'APOC1', 'TOMM40'])
+    pass

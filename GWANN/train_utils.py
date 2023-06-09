@@ -1138,7 +1138,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     
     current_lr = optimiser.state_dict()['param_groups'][0]['lr']
     best_state = model.state_dict()
-    for epoch in range(epochs):
+    for epoch in tqdm.tqdm(range(epochs), desc='Epoch'):
         
         # Train
         model.train()
@@ -1185,10 +1185,10 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
                 best_ep = epoch
                 best_state = model.state_dict()
                 torch.save(model, '{}/{}.pt'.format(log, model_name))
-                print("[{:4d}] Train Acc: {:.3f} Val Acc: {:.3f}, \
-                            Train Loss: {:.3f} Val Loss:{:.3f}".format(
-                                epoch, avg_acc[epoch][0], avg_acc[epoch][1], 
-                                avg_loss[epoch][0], avg_loss[epoch][1]))
+                # print("[{:4d}] Train Acc: {:.3f} Val Acc: {:.3f}, \
+                #             Train Loss: {:.3f} Val Loss:{:.3f}".format(
+                #                 epoch, avg_acc[epoch][0], avg_acc[epoch][1], 
+                #                 avg_loss[epoch][0], avg_loss[epoch][1]))
             
             if epoch%200 == 0 or (epoch == epochs-1):
                 torch.save(model, '{}/{}_Ep{}.pt'.format(log, model_name, epoch))
@@ -1452,7 +1452,8 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     Returns
     ----------
     tuple
-        Tuple of two:
+        Tuple of three:
+            Best epoch
             Best test set accuracy 
             Best train set accuracy
     """
@@ -1469,7 +1470,7 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     best_test_acc = metrics[3].item()
     best_test_loss = loss[best_ep, 1].item()
 
-    return best_test_acc, best_test_loss
+    return best_ep, best_test_acc, best_test_loss
 
 
 # Permutatation Testing functions

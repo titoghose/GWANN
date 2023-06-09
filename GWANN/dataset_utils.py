@@ -285,10 +285,10 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
               sys_params:dict, covs:list, SNP_thresh:int=10000, 
               only_covs:bool=False, preprocess:bool=True,
               lock:Optional[mp.Lock]=None) -> Optional[tuple]:
-    """Load data, balance it and obtain train-test splits 
-    before training. If the preprocess argument is False (by default
-    True), this function will simply create and save the data to disk 
-    and return None.
+    """Load data, balance it and obtain train-test splits before
+    training. If the preprocess argument is False (by default True), 
+    this function will simply create and save the data to disk and 
+    return None.
 
     Parameters
     ----------
@@ -485,7 +485,8 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     assert not np.any(pd.isna(test_df)), \
             f'[{gene}]: Test dataframe contains NaN values'
 
-    data_tuple = preprocess_data(train_df, test_df, covs, label, sys_params)    
+    data_tuple = preprocess_data(train_df=train_df, test_df=test_df, label=label,
+                                 covs=covs, sys_params=sys_params)
 
     return data_tuple
 

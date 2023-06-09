@@ -18,7 +18,7 @@ import torch.nn as nn
 
 from GWANN.dataset_utils import load_data, write_and_return_data
 from GWANN.models import AttentionMask1, GroupAttention, Identity
-from GWANN.train_model_covs import Experiment
+from GWANN.train_model import Experiment
 from GWANN.train_utils import FastTensorDataLoader
 
 def create_cov_only_data(label:str, param_folder:str) -> None:
@@ -150,7 +150,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     model_dict = {
         'grp_size':10,
         'inp':0,
-        'enc':0,
+        'enc':8,
         'h':[128, 64, 16],
         'd':[0.3, 0.3, 0.3],
         'out':2,
@@ -166,7 +166,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     }
     exp = Experiment(prefix=exp_name, label=label, params_base=param_folder, 
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
-            gpu_list=gpu_list)
+            gpu_list=gpu_list, only_covs=True)
 
     genes = {'names':[], 'chrom':[], 'start':[], 'end':[]}
     genes['names'] = df['symbol'].to_list()

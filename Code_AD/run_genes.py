@@ -73,6 +73,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
 
     Parameters
     ----------
+    exp_name : str
+        Name of the experiment.
     label : str
         Label/phenotype.
     param_folder : str
@@ -86,6 +88,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
     
     gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
+    gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
     gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
     gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
@@ -94,7 +97,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
     # gene_win_df = gene_win_df.iloc[:5]
-    print(gene_win_df)
+    print(f'Number of gene win data files found: {gene_win_df.shape[0]}')
 
     # Setting the model for the Experiment
     model = GWANNet5
@@ -113,18 +116,26 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         'optimiser': 'adam',
         'lr': 1e-4,
         'batch': 256,
-        'epochs': 200,
+        'epochs': 250,
     }
     prefix = label + '_Chr' + exp_name
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
                      hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False)
     
+    # Remove genes that have already completed
+    if os.path.exists(exp.summary_f):
+        done_genes = pd.read_csv(exp.summary_f) 
+        done_genes = done_genes['Gene'].apply(lambda x: x.split('_')[0]).to_list()
+        done_genes = set(done_genes)
+        print(len(done_genes))
+        gene_win_df = gene_win_df.loc[~gene_win_df['gene'].isin(done_genes)]
+    print(f'Number of genes left to train: {gene_win_df.shape[0]}')
+    
     genes = {'gene':[], 'chrom':[], 'win':[]}
     genes['gene'] = gene_win_df['gene'].to_list()
     genes['chrom'] = gene_win_df['chrom'].to_list()
     genes['win'] = gene_win_df['win'].to_list()
-    print(len(genes['gene']))
 
     exp.parallel_run(genes=genes)
 

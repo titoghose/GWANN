@@ -22,6 +22,19 @@ from GWANN.dummy_data import dummy_plink
 
 
 def create_dummy_pgen(param_folder:str) -> None:
+    """Create dummy pgen files, followed by converting them to CSV files
+    and shuffling them multiple times to create new dummy data files.
+    Dummy datasets are created for 10, 20, 30, 40, 50 snps with
+    different dosage frequencies. The pgen data is created for all
+    MATERNAL and PATERNAL ids and then the CSVs are created for each of
+    the phenotypes individually. Finally, the SNPs in the created CSV files are
+    shuffled multiple times to create multiple (1000) different dummy datasets.
+
+    Parameters
+    ----------
+    param_folder : str
+        Path to parameters folder.
+    """
     ids = []
     params_dict = {}
     covs_dict = {}
@@ -38,39 +51,50 @@ def create_dummy_pgen(param_folder:str) -> None:
         test_ids  = pd.read_csv(sys_params['TEST_IDS_PATH'], dtype={'iid':str})['iid'].to_list()        
         ids.extend(train_ids+test_ids)
     
-    # split_data_base = sys_params['DATA_BASE_FOLDER'].split('/')
-    # split_data_base[-1] = 'Data_Dummy'
-    # data_base_folder = '/'.join(split_data_base)
+    split_data_base = sys_params['DATA_BASE_FOLDER'].split('/')
+    split_data_base[-1] = 'Data_Dummy'
+    data_base_folder = '/'.join(split_data_base)
     
-    # phen_cov = pd.read_csv(sys_params['PHEN_COV_PATH'], sep=' ', comment='#',
-    #                        dtype={'ID_1':str})
-    # phen_cov.rename(columns={'ID_1':'iid'}, inplace=True)
-    # phen_cov.set_index('iid', inplace=True)
+    phen_cov = pd.read_csv(sys_params['PHEN_COV_PATH'], sep=' ', comment='#',
+                           dtype={'ID_1':str})
+    phen_cov.rename(columns={'ID_1':'iid'}, inplace=True)
+    phen_cov.set_index('iid', inplace=True)
 
-    # lock = mp.Manager().Lock()
+    lock = mp.Manager().Lock()
     
-    # cnt = 0
-    # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    # for num_snps in [10, 20, 30, 40, 50]:
-    #     for dos_freq in dosage_freqs:
-    #         file_prefix = dummy_plink(num_samples=len(ids), 
-    #                 num_snps=num_snps, dosage_freq=dos_freq, 
-    #                 out_folder=f'{data_base_folder}/dummy_pgen')
-    #         pg2pd = PGEN2Pandas(prefix=file_prefix)
-    #         pg2pd.psam['IID'] = ids
-    #         pg2pd.psam['FID'] = ids
+    cnt = 0
+    dosage_freqs = [0.02, 0.04, 0.06, 0.08]
+    for num_snps in [10, 20, 30, 40, 50]:
+        for dos_freq in dosage_freqs:
+            file_prefix = dummy_plink(num_samples=len(ids), 
+                    num_snps=num_snps, dosage_freq=dos_freq, 
+                    out_folder=f'{data_base_folder}/dummy_pgen')
+            pg2pd = PGEN2Pandas(prefix=file_prefix)
+            pg2pd.psam['IID'] = ids
+            pg2pd.psam['FID'] = ids
             
-    #         for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-    #             load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
-    #                     chrom='1', start=0, end=100, buffer=2500, label=label, 
-    #                     sys_params=params_dict[label], covs=covs_dict[label], 
-    #                     preprocess=False, lock=lock)
-    #         cnt += 1
+            for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+                load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
+                        chrom='1', start=0, end=100, buffer=2500, label=label, 
+                        sys_params=params_dict[label], covs=covs_dict[label], 
+                        preprocess=False, lock=lock)
+            cnt += 1
 
     for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
         shuffle_dummy_csvs(params_dict[label]['DATA_BASE_FOLDER'], covs_dict[label])
 
-def shuffle_dummy_csvs(data_folder:str, covs:list):
+def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
+    """Shuffle the SNPs in each dummy dataset multiple times to create
+    new dummy datasets. Save the dummy datasets into the 'wins'
+    subfolder inside the data_folder to get it ready for NN training.
+
+    Parameters
+    ----------
+    data_folder : str
+        Path to dummy data folder.
+    covs : list
+        List of covariates in the data.
+    """
     flist = os.listdir(data_folder)
     flist = [f for f in flist if 'Dummy' in f]
     wins_folder = f'{data_folder}/wins'
@@ -98,6 +122,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
 
     Parameters
     ----------
+    exp_name : str
+        Name of the experiment.
     label : str
         Label/phenotype.
     param_folder : str
@@ -111,6 +137,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
     
     gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
+    gene_win_paths = [g for g in gene_win_paths if 'Dummy' in g]
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
     gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
     gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
@@ -119,7 +146,6 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
     # gene_win_df = gene_win_df.iloc[:5]
-    print(gene_win_df)
 
     # Setting the model for the Experiment
     model = GWANNet5
@@ -164,9 +190,11 @@ if __name__ == '__main__':
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
 
     # Create data 
-    create_dummy_pgen(param_folder=param_folder)
+    # create_dummy_pgen(param_folder=param_folder)
 
     # Run model training pipeline
-    # gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
-    # model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+    gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+
     

@@ -105,8 +105,8 @@ class Experiment:
             self.sys_params['LOGS_BASE_FOLDER'], 
             model_id)
         self.model_dir = model_dir
-        self.summary_f = '{}/{}_summary_{}_{}bp.csv'.format(
-                self.model_dir, self.prefix, self.label, self.buffer)
+        self.summary_f = '{}/{}_{}bp_summary.csv'.format(
+                self.model_dir, self.prefix, self.buffer)
         if not os.path.isdir(self.model_dir):
             os.mkdir(self.model_dir)
     

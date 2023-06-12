@@ -33,11 +33,11 @@ class GWANNet5(nn.Module):
     nn : [type]
         [description]
     """
-    def __init__(self, grp_size, enc, h, d, out, activation, 
-            num_snps, att_model, att_activ):
+    def __init__(self, grp_size, enc, inp, h, d, out, activation, 
+                 att_model, att_activ):
         super(GWANNet5, self).__init__()
 
-        self.snp_enc = nn.Conv1d(num_snps, enc, 1)
+        self.snp_enc = nn.Conv1d(inp, enc, 1)
         self.pool_ind = nn.AvgPool1d(grp_size)        
         self.att_mask = att_model(att_activ)
         self.pool_features = nn.AdaptiveMaxPool1d(32)
@@ -46,7 +46,7 @@ class GWANNet5(nn.Module):
             nn.ReLU(),
             nn.BatchNorm1d(out))
         self.att_out = None
-        self.num_snps = num_snps
+        self.num_snps = inp
         
         # For T2D and AD
         self.end_model = BasicNN(32, [16, 8], [0.1, 0.1], 2, nn.ReLU)

@@ -27,7 +27,9 @@ def sensitivity_1(chroms:list):
     #                         chrom=chrom, glist=glist, split=True)
 
     gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
-    model_pipeline(exp_name='Sens1', label='MATERNAL_MARIONI', 
+    # model_pipeline(exp_name='Sens1', label='MATERNAL_MARIONI', 
+    #                param_folder=param_folder, gpu_list=gpu_list)
+    model_pipeline(exp_name='Sens1', label='PATERNAL_MARIONI', 
                    param_folder=param_folder, gpu_list=gpu_list)
 
 if __name__ == '__main__':

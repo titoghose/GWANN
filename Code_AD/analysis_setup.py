@@ -1,6 +1,8 @@
 import os
 import sys
 
+import tqdm
+
 sys.path.append('/home/upamanyu/GWANN')
 
 import multiprocessing as mp
@@ -13,6 +15,7 @@ import yaml
 
 warnings.filterwarnings('ignore')
 
+import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -236,53 +239,21 @@ def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
         plt.savefig('{}/sex_dist_{}.png'.format(param_folder, label))
         plt.close()
 
-def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000,
-                    glist:Optional[list]=None, num_procs:int=20, 
-                    split:bool=True) -> None:
+def dosage_percentage():
+    base = '/home/upamanyu/GWANN_data/Data_MatAD/wins'
+    flist = os.listdir(base)
+    dos_gt_ptg = []
+    for f in tqdm.tqdm(flist[:500]):
+        df = pd.read_csv(f'{base}/{f}', index_col=0)
+        df = df[df.columns[:-10]]
+        hard_gt = np.count_nonzero(np.isin(df.values, [0.0, 1.0, 2.0]))
+        total_gt = df.shape[0]*df.shape[1]
+        dos_gt_ptg.append((total_gt-hard_gt)/total_gt)
+        # break
     
-    gene_map_file='/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv'
-    with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
-        sys_params = yaml.load(f, Loader=yaml.FullLoader)
-    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
-        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
-
-    create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
-                        buffer=2500, SNP_thresh=SNP_thresh, 
-                        num_procs_per_chrom=num_procs)
-    if split:
-        create_gene_wins(sys_params=sys_params, covs=covs, label=label, 
-                         num_procs=num_procs, genes=None)
-
-def create_gene_wins(sys_params:dict, covs:list, label:str, 
-                     num_procs:int, genes:Optional[list]=None) -> None:
-    """Split data files into windows for training. First move data files
-    into a new folder and create an empty folder.
-
-    Parameters
-    ----------
-    sys_params : dict
-        _description_
-    covs : list
-        _description_
-    """
-    wins_folder = f'{sys_params["DATA_BASE_FOLDER"]}/wins'
-    if not os.path.exists(wins_folder):
-        print((f'Creating new folder {wins_folder} for data split into windows'))
-        os.mkdir(wins_folder)
-
-    glist = [g for g in os.listdir(sys_params["DATA_BASE_FOLDER"]) if g.endswith('.csv')]
-    if genes is not None:
-        glist = [g for g in glist if any([gene in g for gene in genes])]
-    print(len(glist))
-    num_procs = min(num_procs, len(glist))
-    glist = np.array_split(glist, num_procs)
-    with mp.Pool(num_procs) as pool:
-        par_split = partial(split, covs=covs, label=label, 
-                            read_base=sys_params["DATA_BASE_FOLDER"], 
-                            write_base=wins_folder)
-        pool.map(par_split, glist)
-        pool.close()
-        pool.join()
+    sns.histplot(x=dos_gt_ptg)
+    plt.savefig('dosage_percentage_dist.png', dpi=100)
+    plt.close()
 
 if __name__ == '__main__':
     
@@ -295,4 +266,5 @@ if __name__ == '__main__':
     # filter_ids(
     #     param_folder='./params', 
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
-    pass
+    
+    dosage_percentage()

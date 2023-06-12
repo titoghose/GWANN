@@ -30,16 +30,20 @@ class PGEN2Pandas:
             Sample subset to limit dosage extraction to only a few
             samples instead of all samples.
         """
-        self.psam = pd.read_csv(f'{prefix}.psam', sep='\t',
-                                dtype={'#FID':str, 'IID':str})
-        self.psam.rename(columns={'#FID':'FID'}, inplace=True)
+        self.psam = pd.read_csv(f'{prefix}.psam', sep='\t')
+        if '#FID' in self.psam.columns:
+            self.psam.rename(columns={'#FID':'FID'}, inplace=True)
+            self.psam = self.psam.astype(dtype={'FID':str})
+        if '#IID' in self.psam.columns:
+            self.psam.rename(columns={'#IID':'IID'}, inplace=True)
+            self.psam = self.psam.astype(dtype={'IID':str})
         if sample_subset is not None:
             self.psam = self.psam.loc[self.psam['IID'].isin(sample_subset)]
             if len(self.psam) != len(sample_subset):
                 print(f'Following samples not in pgen file:'+
                     f'{set(sample_subset).difference(set(self.psam["IID"].to_list()))}')
-        
         self.psam.sort_index(inplace=True)
+        
         self.pvar = pd.read_csv(f'{prefix}.pvar', sep='\t', 
                                 dtype={'#CHROM':str, 'POS':int})
         self.pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)

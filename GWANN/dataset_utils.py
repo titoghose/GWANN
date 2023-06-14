@@ -373,13 +373,23 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
             return None
         
         data_mat.set_index('iid', inplace=True)
+        print(data_mat.head())
         data_mat = data_mat.loc[train_ids+test_ids]
         data_mat = pd.merge(data_mat, phen_cov[covs+[label,]].loc[train_ids+test_ids], 
                             left_index=True, right_index=True)
     
+    edu_col = 'f.6138'
+    if edu_col in covs:
+        data_mat.loc[data_mat[edu_col] == -7, edu_col] = 7
+        data_mat.loc[data_mat[edu_col] == -3, edu_col] = np.nan
+        print(data_mat.loc[data_mat[edu_col].isna()].shape)
+
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
 
+    assert not np.any(pd.isna(data_mat)), \
+            f'[{gene}]: Dataframe contains NaN values'
+    
     if only_covs:
         data_mat = data_mat[covs+[label,]]
 
@@ -390,11 +400,6 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
 
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
-    
-    assert not np.any(pd.isna(train_df)), \
-            f'[{gene}]: Train dataframe contains NaN values'
-    assert not np.any(pd.isna(test_df)), \
-            f'[{gene}]: Test dataframe contains NaN values'
 
     data_tuple = None
     if preprocess:

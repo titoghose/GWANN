@@ -3,5 +3,6 @@
 *.csv
 **/NN_Logs
 **/Runs
+**/results*
 .python-version
 .vscode

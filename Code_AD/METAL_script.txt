@@ -1,7 +1,10 @@
-# Weight for MatAD and PatAD set to number of testing set samples
+##########################
+# Gene win meta-analysis #
+##########################
 
+# Weight for MatAD and PatAD set to number of testing set samples
 SCHEME SAMPLESIZE
-OVERLAP ON
+OVERLAP OFF
 
 # MatAD
 MARKER   Gene
@@ -10,7 +13,7 @@ ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWASOnSteroids/MatAD_wins_METAL.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results/MATERNAL_MARIONI_METAL_wins_inp.csv
 
 # PatAD
 MARKER   Gene
@@ -19,9 +22,42 @@ ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWASOnSteroids/PatAD_wins_METAL.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results/PATERNAL_MARIONI_METAL_wins_inp.csv
 
-OUTFILE  /home/upamanyu/GWASOnSteroids/GWANN_wins_AD_METAL .TBL
+OUTFILE  /home/upamanyu/GWANN/Code_AD/results/Parental_AD_wins_METAL .TBL
+
+# Execute meta-analysis
+ANALYZE
+
+CLEAR
+
+######################
+# Gene meta-analysis #
+######################
+
+# Weight for MatAD and PatAD set to number of testing set samples
+SCHEME SAMPLESIZE
+OVERLAP OFF
+
+# MatAD
+MARKER   Gene
+DEFAULT  7841
+ALLELE   A1 A2
+EFFECT   Acc
+PVAL     P
+
+PROCESS /home/upamanyu/GWANN/Code_AD/results/MATERNAL_MARIONI_METAL_genes_inp.csv
+
+# PatAD
+MARKER   Gene
+DEFAULT  3805
+ALLELE   A1 A2
+EFFECT   Acc
+PVAL     P
+
+PROCESS /home/upamanyu/GWANN/Code_AD/results/PATERNAL_MARIONI_METAL_genes_inp.csv
+
+OUTFILE  /home/upamanyu/GWANN/Code_AD/results/Parental_AD_genes_METAL .TBL
 
 # Execute meta-analysis
 ANALYZE

@@ -193,8 +193,8 @@ if __name__ == '__main__':
     create_cov_only_data(label=label, param_folder=param_folder)
 
     # Train the covariate models
-    gpu_list = list(np.repeat([0, 1], 1))
-    model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+    # gpu_list = list(np.repeat([0, 1], 1))
+    # model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
 
     # Generate covariate model encodings and save to disk
-    gen_cov_encodings(label=label, param_folder=param_folder, device=0)
+    # gen_cov_encodings(label=label, param_folder=param_folder, device=0)

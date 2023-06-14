@@ -31,10 +31,10 @@ def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000
 
     create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
                         buffer=2500, SNP_thresh=SNP_thresh, 
-                        num_procs_per_chrom=num_procs)
+                        num_procs_per_chrom=num_procs, preprocess=False)
     if split:
         create_gene_wins(sys_params=sys_params, covs=covs, label=label, 
-                         num_procs=num_procs, genes=None)
+                         num_procs=num_procs, genes=glist)
 
 def create_gene_wins(sys_params:dict, covs:list, label:str, 
                      num_procs:int, genes:Optional[list]=None) -> None:
@@ -55,8 +55,14 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
 
     glist = [g for g in os.listdir(sys_params["DATA_BASE_FOLDER"]) if g.endswith('.csv')]
     if genes is not None:
-        glist = [g for g in glist if any([gene in g for gene in genes])]
+        win_files = os.listdir(wins_folder)
+        split_glist = [g for g in genes if any([g in wf for wf in win_files])]
+        no_split_glist = list(set(genes).difference(set(split_glist)))
+        glist = [g for g in glist if any([gene in g for gene in no_split_glist])]
     print(len(glist))
+    if len(glist) == 0:
+        return
+    
     num_procs = min(num_procs, len(glist))
     glist = np.array_split(glist, num_procs)
     with mp.Pool(num_procs) as pool:

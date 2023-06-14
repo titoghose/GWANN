@@ -33,10 +33,13 @@ class PGEN2Pandas:
         self.psam = pd.read_csv(f'{prefix}.psam', sep='\t')
         if '#FID' in self.psam.columns:
             self.psam.rename(columns={'#FID':'FID'}, inplace=True)
+        if 'FID' in self.psam.columns:
             self.psam = self.psam.astype(dtype={'FID':str})
         if '#IID' in self.psam.columns:
             self.psam.rename(columns={'#IID':'IID'}, inplace=True)
+        if 'IID' in self.psam.columns:
             self.psam = self.psam.astype(dtype={'IID':str})
+        
         if sample_subset is not None:
             self.psam = self.psam.loc[self.psam['IID'].isin(sample_subset)]
             if len(self.psam) != len(sample_subset):
@@ -709,7 +712,7 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
 def create_data_for_run(label:str, chrom:str, glist:Optional[list], 
                         sys_params:dict, covs:list, gene_map_file:str, 
                         buffer:int=2500, SNP_thresh:int=10000, 
-                        preprocess:bool=True, num_procs_per_chrom:int=2) -> None:
+                        preprocess:bool=False, num_procs_per_chrom:int=2) -> None:
     """Create data files for a set of genes on a chromosome.
 
     Parameters

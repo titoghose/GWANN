@@ -81,7 +81,7 @@ def gen_cov_encodings(label:str, param_folder:str,
         print(f'Encodings file exists at: {sys_params["COV_ENC_PATH"]}')
         return
 
-    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_Cov_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_CovSens1.2_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
     cov_model = torch.load(model_path, map_location=torch.device('cpu'))
     cov_model.end_model.linears[-1] = Identity()
     cov_model.to(device)
@@ -144,7 +144,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     df = genes_df.loc[gene_list]
     df = df.astype({'chrom':str})
 
-    exp_name = f'{label}_Cov'
+    exp_name = f'{label}_CovSens1.2'
     # Setting the model for the Experiment
     model = GroupAttention
     model_dict = {
@@ -168,8 +168,8 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
             gpu_list=gpu_list, only_covs=True)
 
-    genes = {'names':[], 'chrom':[], 'start':[], 'end':[]}
-    genes['names'] = df['symbol'].to_list()
+    genes = {'gene':[], 'chrom':[], 'start':[], 'end':[]}
+    genes['gene'] = df['symbol'].to_list()
     genes['chrom'] = df['chrom'].to_list()
     genes['start'] = df['start'].to_list()
     genes['end'] = df['end'].to_list()
@@ -190,11 +190,11 @@ if __name__ == '__main__':
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
 
     # Create data
-    create_cov_only_data(label=label, param_folder=param_folder)
+    # create_cov_only_data(label=label, param_folder=param_folder)
 
     # Train the covariate models
     # gpu_list = list(np.repeat([0, 1], 1))
     # model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
 
     # Generate covariate model encodings and save to disk
-    # gen_cov_encodings(label=label, param_folder=param_folder, device=0)
+    gen_cov_encodings(label=label, param_folder=param_folder, device=0)

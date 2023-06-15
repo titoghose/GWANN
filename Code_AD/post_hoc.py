@@ -1,3 +1,4 @@
+import os
 from scipy.stats import skewnorm
 import numpy as np 
 import pandas as pd 
@@ -20,31 +21,34 @@ class EstimatePValue:
     def estimate(self, acc:float) -> float:
         return skewnorm.sf(acc, *self.moments)
 
-def calculate_p_values(label:str):
+def calculate_p_values(label:str, exp_name:str):
+    if not os.path.exists(f'./results_{exp_name}'):
+        os.mkdir(f'./results_{exp_name}')
+    
     null_df = pd.read_csv(
-        f'/home/upamanyu/GWANN/Code_AD/NN_Logs/' + 
-        f'{label}_ChrSens1Dummy_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
-        f'{label}_ChrSens1Dummy_2500bp_summary.csv')
+        f'./NN_Logs/' + 
+        f'{label}_Chr{exp_name}Dummy_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
+        f'{label}_Chr{exp_name}Dummy_2500bp_summary.csv')
     ep = EstimatePValue(null_accs=null_df['Acc'].values)
-    ep.plot_null_dist(f'./results/{label}_null_dist.png')
+    ep.plot_null_dist(f'./results_{exp_name}/{label}_null_dist.png')
 
     summ_df = pd.read_csv(
-        f'/home/upamanyu/GWANN/Code_AD/NN_Logs/'+
-        f'{label}_ChrSens1_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
-        f'{label}_ChrSens1_2500bp_summary.csv')
+        f'./NN_Logs/'+
+        f'{label}_Chr{exp_name}_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
+        f'{label}_Chr{exp_name}_2500bp_summary.csv')
     summ_df['P'] = summ_df['Acc'].apply(lambda x: ep.estimate(x)).values
 
-    summ_df.to_csv(f'./results/{label}_summary.csv', index=False)
+    summ_df.to_csv(f'./results_{exp_name}/{label}_{exp_name}_summary.csv', index=False)
     
     summ_df['A1'] = 'A1'
     summ_df['A2'] = 'A2'
     summ_df = summ_df[['Gene', 'A1', 'A2', 'Acc', 'P']]
-    summ_df.to_csv(f'./results/{label}_METAL_wins_inp.csv', sep=' ', index=False)
+    summ_df.to_csv(f'./results_{exp_name}/{label}_{exp_name}_METAL_wins_inp.csv', sep=' ', index=False)
 
     summ_df['Gene'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
     summ_df.sort_values(['Gene', 'P'], inplace=True)
     summ_df.drop_duplicates(['Gene'], inplace=True)
-    summ_df.to_csv(f'./results/{label}_METAL_genes_inp.csv', sep=' ', index=False)
+    summ_df.to_csv(f'./results_{exp_name}/{label}_{exp_name}_METAL_genes_inp.csv', sep=' ', index=False)
 
     print(label)
     print('------------')
@@ -52,5 +56,5 @@ def calculate_p_values(label:str):
     print()
 
 if __name__ == '__main__':
-    calculate_p_values('MATERNAL_MARIONI')
-    calculate_p_values('PATERNAL_MARIONI')
+    calculate_p_values('MATERNAL_MARIONI', 'Sens1.2')
+    # calculate_p_values('PATERNAL_MARIONI')

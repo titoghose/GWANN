@@ -376,16 +376,19 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
             return None
         
         data_mat.set_index('iid', inplace=True)
-        print(data_mat.head())
         data_mat = data_mat.loc[train_ids+test_ids]
         data_mat = pd.merge(data_mat, phen_cov[covs+[label,]].loc[train_ids+test_ids], 
                             left_index=True, right_index=True)
     
     edu_col = 'f.6138'
     if edu_col in covs:
+        # print(data_mat.loc[data_mat[edu_col].isna()])
         data_mat.loc[data_mat[edu_col] == -7, edu_col] = 7
-        data_mat.loc[data_mat[edu_col] == -3, edu_col] = np.nan
-        print(data_mat.loc[data_mat[edu_col].isna()].shape)
+        data_mat.loc[data_mat[edu_col] == -3, edu_col] = 7
+        data_mat.loc[data_mat[edu_col] == 7, edu_col+'_missing'] = 1
+        data_mat.loc[data_mat[edu_col] != 7, edu_col+'_missing'] = 0
+    # print(data_mat.loc[data_mat[edu_col].isna()])
+
 
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
@@ -544,9 +547,11 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     mm_scaler.fit(train_df)
     scaled_train_df = mm_scaler.transform(train_df)
     train_df.iloc[:, :-1] = scaled_train_df[:, :-1]
+    # train_df.fillna(-1, inplace=True)
     
     scaled_test_df = mm_scaler.transform(test_df)
     test_df.iloc[:, :-1] = scaled_test_df[:, :-1]
+    # test_df.fillna(-1, inplace=True)
     
     # Convert data into grouped samples
     grps = np.load(f'{sys_params["PARAMS_PATH"]}/group_ids_{label}.npz')

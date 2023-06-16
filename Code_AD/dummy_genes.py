@@ -38,7 +38,7 @@ def create_dummy_pgen(param_folder:str) -> None:
     ids = []
     params_dict = {}
     covs_dict = {}
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+    for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
         with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
             sys_params = yaml.load(f, Loader=yaml.FullLoader)
         with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
@@ -73,14 +73,14 @@ def create_dummy_pgen(param_folder:str) -> None:
             pg2pd.psam['IID'] = ids
             pg2pd.psam['FID'] = ids
             
-            for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+            for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
                 load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
                         chrom='1', start=0, end=100, buffer=2500, label=label, 
                         sys_params=params_dict[label], covs=covs_dict[label], 
                         preprocess=False, lock=lock)
             cnt += 1
 
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+    for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
         shuffle_dummy_csvs(params_dict[label]['DATA_BASE_FOLDER'], covs_dict[label])
 
 def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
@@ -193,8 +193,8 @@ if __name__ == '__main__':
     # create_dummy_pgen(param_folder=param_folder)
 
     # Run model training pipeline
-    gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-        model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+    # gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
+    # for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
+    #     model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
 
     

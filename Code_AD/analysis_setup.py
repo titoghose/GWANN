@@ -267,4 +267,11 @@ if __name__ == '__main__':
     #     param_folder='./params', 
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
-    dosage_percentage()
+    # dosage_percentage()
+
+    create_groups(
+            label='MATERNAL_MARIONI',
+            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
+            phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+            grp_size=10
+        )

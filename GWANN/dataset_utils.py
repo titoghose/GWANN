@@ -236,19 +236,31 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         
         # Randomly oversample and interleave the individuals
         case = np.repeat(case, over)
-        np.random.seed(1763)
+        np.random.seed(82)
+        # 3 np.random.seed(192)
+        # 2 np.random.seed(8376)
+        # 1 np.random.seed(1763)
         np.random.shuffle(case)
         cont = np.repeat(cont, over)
-        np.random.seed(1763)
+        np.random.seed(82)
+        # 3 np.random.seed(192)
+        # 2 np.random.seed(8376)
+        # 1 np.random.seed(1763)
         np.random.shuffle(cont)
 
         # Remove extra samples that will not form a group of the
         # expected size
         case_num = len(case) - len(case)%grp_size
         cont_num = len(cont) - len(cont)%grp_size
-        np.random.seed(8983)
+        np.random.seed(102)
+        # 3 np.random.seed(1108)
+        # 2 np.random.seed(1763)
+        # 1 np.random.seed(8983)
         case = np.random.choice(case, case_num, replace=False)
-        np.random.seed(8983)
+        np.random.seed(102)
+        # 3 np.random.seed(1108)
+        # 2 np.random.seed(1763)
+        # 1 np.random.seed(8983)
         cont = np.random.choice(cont, cont_num, replace=False)
 
         # Create groups balanced on age and sex (as close as possible)
@@ -388,8 +400,7 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat.loc[data_mat[edu_col].isna(), edu_col+'_missing'] = 1
         data_mat.loc[~data_mat[edu_col].isna(), edu_col+'_missing'] = 0
     # print(data_mat.loc[data_mat[edu_col].isna()])
-
-
+    
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
 
@@ -552,13 +563,13 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     test_df.iloc[:, num_snps:-1] = scaled_test_df[:, num_snps:-1]
     
     # Scale SNPs between -1 and 1 to match scalling of GWANNv1
-    mm_scaler = MinMaxScaler(feature_range=(-1, 1))
-    mm_scaler.fit(train_df)
-    scaled_train_df = mm_scaler.transform(train_df)
-    train_df.iloc[:, :num_snps] = scaled_train_df[:, :num_snps]
+    # mm_scaler = MinMaxScaler(feature_range=(-1, 1))
+    # mm_scaler.fit(train_df)
+    # scaled_train_df = mm_scaler.transform(train_df)
+    # train_df.iloc[:, :num_snps] = scaled_train_df[:, :num_snps]
     
-    scaled_test_df = mm_scaler.transform(test_df)
-    test_df.iloc[:, :num_snps] = scaled_test_df[:, :num_snps]
+    # scaled_test_df = mm_scaler.transform(test_df)
+    # test_df.iloc[:, :num_snps] = scaled_test_df[:, :num_snps]
     
     # Fill missing values for f.6138
     train_df.fillna(-1, inplace=True)
@@ -686,7 +697,7 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
         if ret_data == False, 0
     """
    
-    pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
+    pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/withWithdrawn_UKB_chr{chrom}'
     train_ids = pd.read_csv(sys_params["TRAIN_IDS_PATH"], 
                             dtype={'iid':str})['iid'].to_list()
     test_ids = pd.read_csv(sys_params["TEST_IDS_PATH"],

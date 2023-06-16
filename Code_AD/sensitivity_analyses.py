@@ -97,7 +97,36 @@ def sensitivity_1_3(chroms:list):
         #             param_folder=param_folder, gpu_list=gpu_list)
         break
 
+def sensitivity_1_4(chroms:list):
+    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
+
+    # gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
+    # gdf = gdf.loc[gdf['symbol'].isin(['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'])]
+    # gdf.rename(columns={'symbol':'Gene', 'chrom':'Chrom'}, inplace=True)
+    # gdf['P'] = 0
+
+    # labels = {'MATERNAL_MARIONI':gdf}
+    # for label, df in labels.items():
+    #     hits = df.loc[df['P'] < (0.05/73310)].astype({'Chrom':str})
+    #     print(label)
+    #     for chrom, idx in hits.groupby('Chrom').groups.items():
+    #         if not str(chrom) in chroms:
+    #             continue
+    #         glist = hits.loc[idx]['Gene'].to_list()
+    #         print(chrom, glist)
+    #         run_genes.create_csv_data(label=label, param_folder=param_folder, 
+    #                         chrom=chrom, glist=glist, split=True)
+
+    gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        # run_genes.model_pipeline(exp_name='Sens1.4', label=label, 
+        #             param_folder=param_folder, gpu_list=gpu_list)
+        dummy_genes.model_pipeline(exp_name='Sens1.4Dummy', label=label, 
+                    param_folder=param_folder, gpu_list=gpu_list)
+        break
+
 if __name__ == '__main__':
     chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
-    sensitivity_1_3(chroms)
+    # sensitivity_1_3(chroms)
+    sensitivity_1_4(chroms)

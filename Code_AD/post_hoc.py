@@ -13,14 +13,14 @@ class EstimatePValue:
     
     def plot_null_dist(self, plot_path:str) -> None:
         
-        plt.hist(self.null_accs, density=True, alpha=0.5)
+        plt.hist(self.null_accs, density=True, alpha=0.35)
         for n in [100, 200, 500, 800, 1000]:
             np.random.seed(1047)    
             null_acc_sample = np.random.choice(self.null_accs, size=n)
             moments = skewnorm.fit(null_acc_sample)
             x = np.linspace(min(self.null_accs), max(self.null_accs), num=1000)
             y = skewnorm.pdf(x, *moments)
-            plt.plot(x, y, linewidth=1, label=str(n))
+            plt.plot(x, y, linewidth=2, label=str(n))
         
         plt.legend(title='\n'.join(
             wrap('Distribution estimation sample size', 20)))

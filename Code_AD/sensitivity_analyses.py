@@ -6,7 +6,7 @@ sys.path.append('/home/upamanyu/GWANN')
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, rankdata
 import run_genes
 import dummy_genes
 
@@ -91,7 +91,7 @@ def sensitivity_1_3(chroms:list):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
     gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
     for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-        run_genes.model_pipeline(exp_name='Sens1.3.1', label=label, 
+        run_genes.model_pipeline(exp_name='Sens1.3', label=label, 
                     param_folder=param_folder, gpu_list=gpu_list)
         # dummy_genes.model_pipeline(exp_name='Sens1.2Dummy', label=label, 
         #             param_folder=param_folder, gpu_list=gpu_list)
@@ -104,34 +104,45 @@ def sensitivity_1_4(chroms:list):
     
     # GWANNv1 Mat AD APOE locus genes
     # gdf = gdf.loc[gdf['symbol'].isin(['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'])]
-    gdf = gdf.loc[gdf['symbol'].isin(
-        ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
-        ['ICAM3', 'ATP2C1', 'PPP1R37', 'GLIS3', 'ARHGEF28'])] # GWANNv1 Mat AD within bottom 20 genes that passed significance
-    gdf.rename(columns={'symbol':'Gene', 'chrom':'Chrom'}, inplace=True)
-    gdf['P'] = 0
+    # gdf = gdf.loc[gdf['symbol'].isin(
+    #     ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
+    #     ['ICAM3', 'ATP2C1', 'PPP1R37', 'GLIS3', 'ARHGEF28'])] # GWANNv1 Mat AD within bottom 20 genes that passed significance
+    # gdf.rename(columns={'symbol':'Gene', 'chrom':'Chrom'}, inplace=True)
+    # gdf['P'] = 0
 
-    labels = {'MATERNAL_MARIONI':gdf}
-    for label, df in labels.items():
-        hits = df.loc[df['P'] < (0.05/73310)].astype({'Chrom':str})
-        print(label)
-        for chrom, idx in hits.groupby('Chrom').groups.items():
-            if not str(chrom) in chroms:
-                continue
-            glist = hits.loc[idx]['Gene'].to_list()
-            print(chrom, glist)
-            run_genes.create_csv_data(label=label, param_folder=param_folder, 
-                            chrom=chrom, glist=glist, split=True)
+    # labels = {'MATERNAL_MARIONI':gdf}
+    # for label, df in labels.items():
+    #     hits = df.loc[df['P'] < (0.05/73310)].astype({'Chrom':str})
+    #     print(label)
+    #     for chrom, idx in hits.groupby('Chrom').groups.items():
+    #         if not str(chrom) in chroms:
+    #             continue
+    #         glist = hits.loc[idx]['Gene'].to_list()
+    #         print(chrom, glist)
+    #         run_genes.create_csv_data(label=label, param_folder=param_folder, 
+    #                         chrom=chrom, glist=glist, split=True)
 
-    # gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
-    # for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-    #     # run_genes.model_pipeline(exp_name='Sens1.4', label=label, 
-    #     #             param_folder=param_folder, gpu_list=gpu_list)
-    #     dummy_genes.model_pipeline(exp_name='Sens1.4Dummy', label=label, 
-    #                 param_folder=param_folder, gpu_list=gpu_list)
-    #     break
+    gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        run_genes.model_pipeline(exp_name='Sens1.4', label=label, 
+                    param_folder=param_folder, gpu_list=gpu_list)
+        # dummy_genes.model_pipeline(exp_name='Sens1.4Dummy', label=label, 
+        #             param_folder=param_folder, gpu_list=gpu_list)
+        break
+
+def sensitivity_1_4_plots():
+    agg_summ_df = pd.DataFrame(columns=['Gene', 'Acc', 'P', 'Grouping_id'])
+    for i in [1,2,3,4]:
+        summ_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens1.4/{i}_MATERNAL_MARIONI_Sens1.4_summary.csv')
+        summ_df['Grouping_id'] = i
+        agg_summ_df = pd.concat((agg_summ_df, summ_df[agg_summ_df.columns]))
+    
+    sns.lineplot(data=agg_summ_df, x='Grouping_id', y='Acc', hue='Gene')
+        
 
 if __name__ == '__main__':
     chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
-    # sensitivity_1_3(chroms)
-    sensitivity_1_4(chroms)
+    sensitivity_1_3(chroms)
+    # sensitivity_1_4(chroms)
+    # sensitivity_1_4_plots()

@@ -74,7 +74,7 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list) -> None:
+                   gpu_list:list, glist:list=None) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -96,10 +96,11 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
     gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
     
-    # paths = []
-    # for g in ['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37']:
-    #     paths.extend([p for p in gene_win_paths if g in p])
-    # gene_win_paths = paths
+    if glist is not None:
+        paths = []
+        for g in glist:
+            paths.extend([p for p in gene_win_paths if g in p])
+        gene_win_paths = paths
     
     gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])

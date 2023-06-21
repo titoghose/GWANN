@@ -90,11 +90,15 @@ def sensitivity_1_2(chroms:list):
 def sensitivity_1_3(chroms:list):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
     gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 4))
+    glist = (['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'] +
+            ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
+            ['ICAM3', 'ATP2C1', 'GLIS3', 'ARHGEF28']) # GWANNv1 Mat AD within bottom 20 genes that passed significance
     for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-        run_genes.model_pipeline(exp_name='Sens1.3', label=label, 
+        # run_genes.model_pipeline(exp_name='Sens1.3', label=label, 
+        #             param_folder=param_folder, gpu_list=gpu_list, 
+        #             glist=glist)
+        dummy_genes.model_pipeline(exp_name='Sens1.3Dummy', label=label, 
                     param_folder=param_folder, gpu_list=gpu_list)
-        # dummy_genes.model_pipeline(exp_name='Sens1.2Dummy', label=label, 
-        #             param_folder=param_folder, gpu_list=gpu_list)
         break
 
 def sensitivity_1_4(chroms:list):

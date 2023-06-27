@@ -143,10 +143,25 @@ def sensitivity_1_4_plots():
     
     sns.lineplot(data=agg_summ_df, x='Grouping_id', y='Acc', hue='Gene')
         
+def sensitivity_1_5(chroms:list):
+    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
+
+    glist = (['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'] +
+            ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
+            ['ICAM3', 'ATP2C1', 'GLIS3', 'ARHGEF28']) # GWANNv1 Mat AD within bottom 20 genes that passed significance
+    gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        # run_genes.model_pipeline(exp_name='Sens1.5', label=label, 
+        #             param_folder=param_folder, gpu_list=gpu_list,
+        #             glist=glist)
+        dummy_genes.model_pipeline(exp_name='Sens1.5Dummy', label=label, 
+                    param_folder=param_folder, gpu_list=gpu_list)
+        break
 
 if __name__ == '__main__':
     chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
-    sensitivity_1_3(chroms)
+    # sensitivity_1_3(chroms)
     # sensitivity_1_4(chroms)
     # sensitivity_1_4_plots()
+    sensitivity_1_5(chroms)

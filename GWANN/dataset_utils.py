@@ -236,15 +236,15 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         
         # Randomly oversample and interleave the individuals
         case = np.repeat(case, over)
-        np.random.seed(82)
+        # 4 np.random.seed(82)
         # 3 np.random.seed(192)
-        # 2 np.random.seed(8376)
+        np.random.seed(8376)
         # 1 np.random.seed(1763)
         np.random.shuffle(case)
         cont = np.repeat(cont, over)
-        np.random.seed(82)
+        # 4 np.random.seed(82)
         # 3 np.random.seed(192)
-        # 2 np.random.seed(8376)
+        np.random.seed(8376)
         # 1 np.random.seed(1763)
         np.random.shuffle(cont)
 
@@ -394,13 +394,13 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     
     edu_col = 'f.6138'
     if edu_col in covs:
-        # print(data_mat.loc[data_mat[edu_col].isna()])
         data_mat.loc[data_mat[edu_col] == -7, edu_col] = np.nan
         data_mat.loc[data_mat[edu_col] == -3, edu_col] = np.nan
         data_mat.loc[data_mat[edu_col].isna(), edu_col+'_missing'] = 1
         data_mat.loc[~data_mat[edu_col].isna(), edu_col+'_missing'] = 0
-    # print(data_mat.loc[data_mat[edu_col].isna()])
     
+    # print(data_mat.loc[data_mat['f.6138_ISCED'].isna()])
+
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
 
@@ -697,7 +697,7 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
         if ret_data == False, 0
     """
    
-    pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/withWithdrawn_UKB_chr{chrom}'
+    pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
     train_ids = pd.read_csv(sys_params["TRAIN_IDS_PATH"], 
                             dtype={'iid':str})['iid'].to_list()
     test_ids = pd.read_csv(sys_params["TEST_IDS_PATH"],

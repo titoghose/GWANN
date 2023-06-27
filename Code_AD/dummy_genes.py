@@ -164,7 +164,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         'optimiser': 'adam',
         'lr': 1e-4,
         'batch': 256,
-        'epochs': 200,
+        'epochs': 250,
     }
     prefix = label + '_Chr' + exp_name
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 

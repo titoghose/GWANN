@@ -82,7 +82,7 @@ def gen_cov_encodings(label:str, param_folder:str,
         print(f'Encodings file exists at: {sys_params["COV_ENC_PATH"]}')
         return
 
-    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/4_{label}_CovSens1.4_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_CovSens1.5_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
     cov_model = torch.load(model_path, map_location=torch.device('cpu'))
     cov_model.end_model.linears[-1] = Identity()
     cov_model.to(device)
@@ -145,7 +145,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     df = genes_df.loc[gene_list]
     df = df.astype({'chrom':str})
 
-    exp_name = f'{label}_CovSens1.4'
+    exp_name = f'{label}_CovSens1.5'
     # Setting the model for the Experiment
     model = GroupAttention
     model_dict = {

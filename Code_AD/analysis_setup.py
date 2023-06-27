@@ -111,7 +111,7 @@ def filter_ids(param_folder:str, phen_cov_path:str) -> None:
                          index=False)
         
         create_groups(
-            label=label,
+            label=phen,
             param_folder=param_folder, 
             phen_cov_path=phen_cov_path,
             grp_size=10
@@ -264,7 +264,7 @@ if __name__ == '__main__':
 
     # Cell Reports reviewer rerun
     # filter_ids(
-    #     param_folder='./params', 
+    #     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
     # dosage_percentage()

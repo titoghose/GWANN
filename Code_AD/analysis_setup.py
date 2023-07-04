@@ -268,10 +268,10 @@ if __name__ == '__main__':
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
     # dosage_percentage()
-
+    grp_size = 10
     create_groups(
             label='MATERNAL_MARIONI',
-            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun', 
+            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens2', 
             phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-            grp_size=10
+            grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
         )

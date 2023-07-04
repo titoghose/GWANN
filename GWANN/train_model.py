@@ -22,14 +22,14 @@ from GWANN.train_utils import create_train_plots, train
 class Experiment:
     def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
                  model:nn.Module, model_dict:dict, hp_dict:dict, 
-                 gpu_list:list, only_covs:bool):
+                 gpu_list:list, only_covs:bool, grp_size:int=10):
 
         # Experiment descriptive parameters
         self.prefix = prefix
         self.label = label
         self.buffer = buffer
         self.params_base = params_base
-
+        
         # Base parameter YAML files
         self.sys_params = None
         self.covs = None
@@ -47,6 +47,7 @@ class Experiment:
         self.model = model
         self.model_params = model_dict
         self.hyperparam_dict = hp_dict
+        self.grp_size = grp_size
         self.model_dir = ''
         self.summary_f = ''
         self.perms = 0
@@ -187,9 +188,9 @@ class Experiment:
             cov_enc = np.load(self.sys_params['COV_ENC_PATH'])
         
             ce_train = np.expand_dims(cov_enc['train_enc'], 1)
-            ce_train = np.repeat(ce_train, 10, 1)
+            ce_train = np.repeat(ce_train, self.grp_size, 1)
             ce_test = np.expand_dims(cov_enc['test_enc'], 1)
-            ce_test = np.repeat(ce_test, 10, 1)
+            ce_test = np.repeat(ce_test, self.grp_size, 1)
             return {'train': ce_train, 'test': ce_test}
 
     def parallel_run(self, genes:dict):

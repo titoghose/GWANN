@@ -74,7 +74,7 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, glist:list=None) -> None:
+                   gpu_list:list, glist:list=None, grp_size:int=10) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -116,7 +116,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     # Setting the model for the Experiment
     model = GWANNet5
     model_params = {
-        'grp_size':10,
+        'grp_size':grp_size,
         'inp':0,
         'enc':8,
         'h':[128, 64],
@@ -135,7 +135,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     prefix = label + '_Chr' + exp_name
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
-                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False)
+                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
+                     grp_size=grp_size)
     
     # Remove genes that have already completed
     if os.path.exists(exp.summary_f):

@@ -66,5 +66,5 @@ def calculate_p_values(label:str, exp_name:str):
     print()
 
 if __name__ == '__main__':
-    calculate_p_values('MATERNAL_MARIONI', 'Sens1.5')
+    calculate_p_values('MATERNAL_MARIONI', 'Sens2')
     # calculate_p_values('PATERNAL_MARIONI')

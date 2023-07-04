@@ -7,7 +7,7 @@ sys.path.append('/home/upamanyu/GWANN')
 import argparse
 import datetime
 import multiprocessing as mp
-from typing import Union
+from typing import Optional, Union
 
 import yaml
 import numpy as np
@@ -58,7 +58,7 @@ def create_cov_only_data(label:str, param_folder:str) -> None:
         preprocess=True)
 
 def gen_cov_encodings(label:str, param_folder:str, 
-                      device:Union[int, str]=0) -> None:
+                      device:Union[int, str]=0, exp_suffix:str='') -> None:
     """Generate and save covariate encodings from the penultimate layer 
     of the covariate model. It will always look for a model trained for
     the BCR gene. BCR was selected randomly because the gene does not
@@ -78,11 +78,13 @@ def gen_cov_encodings(label:str, param_folder:str,
     with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
         covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
     
+    sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_suffix}_cov_encodings_{label}.npz'
+
     if os.path.isfile(sys_params['COV_ENC_PATH']):
         print(f'Encodings file exists at: {sys_params["COV_ENC_PATH"]}')
         return
 
-    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_CovSens1.5_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_Cov{exp_suffix}_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
     cov_model = torch.load(model_path, map_location=torch.device('cpu'))
     cov_model.end_model.linears[-1] = Identity()
     cov_model.to(device)
@@ -125,7 +127,8 @@ def gen_cov_encodings(label:str, param_folder:str,
                  train_enc=train_enc.numpy(), 
                  test_enc=test_enc.numpy())
 
-def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
+def model_pipeline(label:str, param_folder:str, gpu_list:list, 
+                   exp_suffix:str='', grp_size:int=10) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -145,11 +148,11 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     df = genes_df.loc[gene_list]
     df = df.astype({'chrom':str})
 
-    exp_name = f'{label}_CovSens1.5'
+    exp_name = f'{label}_Cov{exp_suffix}'
     # Setting the model for the Experiment
     model = GroupAttention
     model_dict = {
-        'grp_size':10,
+        'grp_size':grp_size,
         'inp':0,
         'enc':8,
         'h':[128, 64, 16],
@@ -167,7 +170,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list) -> None:
     }
     exp = Experiment(prefix=exp_name, label=label, params_base=param_folder, 
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
-            gpu_list=gpu_list, only_covs=True)
+            gpu_list=gpu_list, only_covs=True, grp_size=grp_size)
 
     genes = {'gene':[], 'chrom':[], 'start':[], 'end':[]}
     genes['gene'] = df['symbol'].to_list()
@@ -194,8 +197,10 @@ if __name__ == '__main__':
     # create_cov_only_data(label=label, param_folder=param_folder)
 
     # Train the covariate models
-    # gpu_list = list(np.repeat([0, 1], 1))
-    # model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+    gpu_list = list(np.repeat([0, 1], 1))
+    model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list,
+                   exp_suffix='Sens2')
 
     # Generate covariate model encodings and save to disk
-    gen_cov_encodings(label=label, param_folder=param_folder, device=0)
+    # gen_cov_encodings(label=label, param_folder=param_folder, device=0, 
+    #                   exp_suffix='Sens2')

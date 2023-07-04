@@ -183,7 +183,8 @@ def group_ages(ages:np.ndarray, num_grps:int) -> np.ndarray:
     return new_ages
 
 def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=10,
-            train_oversample:int=10, test_oversample:int=10) -> None:
+            train_oversample:int=10, test_oversample:int=10, random_seed:int=82, 
+            grp_id_path:str='') -> None:
     """Convert data arrays to grouped data arrays after balancing as
     best as possible for age and sex.
 
@@ -208,9 +209,11 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
 
     """
     print('\nGrouping ids for for: {}'.format(label))
+
+    if len(grp_id_path) == 0:
+        grp_id_path = '{}/group_ids_{}.npz'.format(param_folder, label)
     
-    group_id_path = '{}/group_ids_{}.npz'.format(param_folder, label)
-    if os.path.isfile(group_id_path):
+    if os.path.isfile(grp_id_path):
         print('Group ids file exists')
         return
     
@@ -236,31 +239,19 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         
         # Randomly oversample and interleave the individuals
         case = np.repeat(case, over)
-        # 4 np.random.seed(82)
-        # 3 np.random.seed(192)
-        np.random.seed(8376)
-        # 1 np.random.seed(1763)
+        np.random.seed(random_seed)
         np.random.shuffle(case)
         cont = np.repeat(cont, over)
-        # 4 np.random.seed(82)
-        # 3 np.random.seed(192)
-        np.random.seed(8376)
-        # 1 np.random.seed(1763)
+        np.random.seed(random_seed)
         np.random.shuffle(cont)
 
         # Remove extra samples that will not form a group of the
         # expected size
         case_num = len(case) - len(case)%grp_size
         cont_num = len(cont) - len(cont)%grp_size
-        np.random.seed(102)
-        # 3 np.random.seed(1108)
-        # 2 np.random.seed(1763)
-        # 1 np.random.seed(8983)
+        np.random.seed(random_seed)
         case = np.random.choice(case, case_num, replace=False)
-        np.random.seed(102)
-        # 3 np.random.seed(1108)
-        # 2 np.random.seed(1763)
-        # 1 np.random.seed(8983)
+        np.random.seed(random_seed)
         cont = np.random.choice(cont, cont_num, replace=False)
 
         # Create groups balanced on age and sex (as close as possible)
@@ -292,7 +283,7 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         grp_ids.append(np.concatenate((Xg[0], Xg[1])))
         grp_labels.append(np.concatenate((np.ones(len(Xg[0])), np.zeros(len(Xg[1])))))
 
-    np.savez(group_id_path,
+    np.savez(grp_id_path,
         train_grps=grp_ids[0],
         train_grp_labels=grp_labels[0],
         test_grps=grp_ids[1],
@@ -501,7 +492,11 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     data_mat.index = data_mat.index.astype(str)
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
-        
+    
+    if set(covs).difference(set(data_mat.columns)):
+        print(f'[{gene}]: Covariates in data do not match cov yaml file')
+        return
+
     if only_covs:
         train_df = train_df[covs+[label,]]
         test_df = test_df[covs+[label,]]
@@ -576,7 +571,7 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     test_df.fillna(-1, inplace=True)
 
     # Convert data into grouped samples
-    grps = np.load(f'{sys_params["PARAMS_PATH"]}/group_ids_{label}.npz')
+    grps = np.load(f'{sys_params["GROUP_IDS_PATH"]}')
     grp_size = grps['train_grps'].shape[1]
     train_grps = np.asarray(grps['train_grps'].flatten(), dtype=int).astype(str)
     test_grps = np.asarray(grps['test_grps'].flatten(), dtype=int).astype(str)

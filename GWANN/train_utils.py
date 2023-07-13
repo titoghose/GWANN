@@ -38,7 +38,7 @@ from statsmodels.stats.proportion import proportion_confint
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # Load paramaters
@@ -168,6 +168,56 @@ class FastTensorDataLoader:
     def __len__(self):
         return self.n_batches
 
+class SKFBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size, shuffle):
+        self.labels = dataset.labels
+        self.num_labels = len(dataset.labels)
+        self.batch_size = batch_size
+        self.num_batches, rem = divmod(self.num_labels, self.batch_size)
+        if rem >= 1:
+            self.num_batches += 1
+        
+        self.splitter = StratifiedKFold(n_splits=self.num_batches, 
+                                        shuffle=shuffle)
+
+    def __iter__(self):
+        for _, batch_ind in self.splitter.split(self.labels, self.labels):
+            yield batch_ind
+            
+    def __len__(self):
+        return self.num_batches
+
+class BalancedBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size, shuffle):
+        self.unique_labels = np.unique(dataset.labels)
+        self.labels = dataset.labels
+        self.label_inds = {label:np.where(dataset.labels == label)[0] for label in self.unique_labels}
+
+        self.num_labels = len(dataset.labels)
+        self.batch_size = batch_size
+        self.num_batches, rem = divmod(self.num_labels, self.batch_size)
+        if rem >= 1:
+            self.num_batches += 1
+        
+        self.num_items, rem = divmod(self.batch_size, len(self.unique_labels))
+        assert rem == 0, 'Batch size is not divisible by number of clases'
+
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        if self.shuffle:
+            rand_inds = {k:np.random.choice(len(v), len(v), replace=False) for k, v in self.label_inds.items()}
+        else:
+            rand_inds = {k:np.arange(len(v)) for k, v in self.label_inds.items()}
+        
+        for b in range(self.num_batches):
+            batch_ind = []
+            for label, ri in rand_inds.items():
+                batch_ind.extend(self.label_inds[label][ri[b*self.num_items:(b+1)*self.num_items]])
+            yield batch_ind
+        
+    def __len__(self):
+        return self.num_batches
 
 # Visualisation functions
 
@@ -1119,12 +1169,21 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     else:
         Xval, yval = X[val_ind], y[val_ind]
 
-    train_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
-        batch_size=batch_size, shuffle=True)
-    train_inf_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
-        batch_size=8192, shuffle=False)
-    val_dataloader = FastTensorDataLoader(Xval, yval, 
-        batch_size=2048, shuffle=False)
+    train_dataset = GWASDataset(X[train_ind], y[train_ind])
+    train_sampler = SKFBatchSampler(train_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler)
+    
+    train_inf_dataloader = DataLoader(dataset=train_dataset, batch_size=8192, shuffle=False)
+    
+    val_dataset = GWASDataset(Xval, yval)
+    val_dataloader = DataLoader(dataset=val_dataset, batch_size=2048, shuffle=False)
+
+    # train_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
+    #     batch_size=batch_size, shuffle=True)
+    # train_inf_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
+    #     batch_size=8192, shuffle=False)
+    # val_dataloader = FastTensorDataLoader(Xval, yval, 
+    #     batch_size=2048, shuffle=False)
     
     # Send model to device and initialise weights and metric tensors
     model.to(device)

@@ -306,7 +306,8 @@ def sensitivity_4():
                 #                          grp_size=grp_size)
                 # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
                 #                          device=gpu_list[0], exp_suffix=exp_name)
-
+                
+                exp_name = f'Sens4.1_{si}_{oversample}'
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
                             glist=glist, grp_size=grp_size)

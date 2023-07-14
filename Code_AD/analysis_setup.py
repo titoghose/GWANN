@@ -52,6 +52,7 @@ def filter_ids(param_folder:str, phen_cov_path:str) -> None:
 
     with open(f'{param_folder}/covs_MATERNAL_MARIONI.yaml', 'r') as f:
         covs = yaml.load(f, yaml.FullLoader)['COVARIATES']
+    
     phen_cov_df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
     phen_cov_df = phen_cov_df[
         ['ID_1',] + covs + ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']]
@@ -117,7 +118,7 @@ def filter_ids(param_folder:str, phen_cov_path:str) -> None:
             grp_size=10
         )
 
-def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
+def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) -> None:
     """From all possible indidividuals in the UKBB data, generate 1:1 
     case:control split and save all ids to a file. Do this for Maternal
     and Paternal histories.
@@ -132,6 +133,139 @@ def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
         information for all individuals in the cohort.
     """
     
+    with open(f'{param_folder}/covs_MATERNAL_MARIONI.yaml', 'r') as f:
+        covs = yaml.load(f, yaml.FullLoader)['COVARIATES']
+
+    geno_id_path = 'params/geno_ids.csv'.format(param_folder)
+    geno_ids = pd.read_csv(geno_id_path)['ID1'].values
+
+    ad_diag_path = 'params/AD_Diagnosis.csv'.format(param_folder)
+    ad_diag = pd.read_csv(ad_diag_path)['ID1'].to_list()
+    extended_AD_ids = pd.read_csv(
+        './params/UKB_AD_inc_c.sample', sep='\t').iloc[1:,:]['ID_1'].to_list()
+    ad_diag = ad_diag + list(set(extended_AD_ids))
+
+    neuro_diag_path = 'params/Neuro_Diagnosis.csv'.format(param_folder)
+    neuro_diag = pd.read_csv(neuro_diag_path)['ID_1'].values
+    
+    ukb_withdrawn_ids = pd.read_csv(
+            'params/ukb_withdrawn_04May23.csv')['ID_1'].to_list()
+
+    df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
+    df.drop_duplicates('ID_1', inplace=True)
+    df.set_index('ID_1', drop=False, inplace=True)
+    df = df.loc[df.index.isin(geno_ids)]
+    df = df.loc[~df.index.isin(ukb_withdrawn_ids)]
+    print('Shape after retaining only those iids in genotype file: {}'.format(df.shape))
+
+    # Remove people with AD diagnosis but in the FH control set and add
+    # them to the maternal and paternal cases
+    df = df.loc[~(df.index.isin(ad_diag) & 
+        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
+    df.loc[df.index.isin(ad_diag), 'MATERNAL_MARIONI'] = 1
+    df.loc[df.index.isin(ad_diag), 'PATERNAL_MARIONI'] = 1
+
+    df.dropna(subset=covs, inplace=True)
+    print('Shape after dropping missing covariates: {}'.format(df.shape))
+    
+    old_len = df.shape[0]
+    df = df.loc[~(df.index.isin(neuro_diag) & 
+        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
+    new_len = df.shape[0]
+    print('Number of Neuro diagnosed removed: {}'.format(old_len-new_len))
+    
+    # Group ages
+    new_ages = group_ages(df['f.21003.0.0'].values, 3)
+    df['old_ages'] = df['f.21003.0.0'].values
+    df['f.21003.0.0'] = new_ages
+    print('Number of unique age groups: {}'.format(
+        np.unique(df['f.21003.0.0'].values)))
+
+    # Ensure that MATERNAL_MARIONI dataset is created first
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        print('\nTrain-test split for: {}'.format(label))
+        all_ids_path = '{}/all_ids_{}.csv'.format(param_folder, label)
+        train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
+        test_ids_path = '{}/test_ids_{}.csv'.format(param_folder, label)
+        
+        lab_df = df.copy()
+        if label == 'PATERNAL_MARIONI':
+            lab_df = lab_df.loc[~(
+                (lab_df['PATERNAL_MARIONI'] == 0) & 
+                (lab_df['MATERNAL_MARIONI'] == 1))]
+        else:
+            lab_df = lab_df.loc[~(
+                (lab_df['MATERNAL_MARIONI'] == 0) & 
+                (lab_df['PATERNAL_MARIONI'] == 1))]
+
+        lab_df = lab_df.loc[lab_df[label].isin([0, 1])]
+        print(lab_df.shape)
+
+        # Get controls balanced by age and sex
+        b_df = balance_by_agesex(lab_df, label, control_prop=control_prop)
+        print('Final df size, cases, controls: {} {} {} {}'.format(
+            b_df.shape[0], 
+            b_df.loc[b_df[label] == 1].shape[0],
+            b_df.loc[b_df[label] == 0].shape[0],
+            b_df.loc[b_df[label].isna()].shape[0]))
+        b_df = b_df.rename(columns={'ID_1':'iid'})
+        b_df[['iid', label]].to_csv(all_ids_path, index=False)
+        
+        sss = StratifiedShuffleSplit(1, test_size=0.15, random_state=1933)
+        for tr, te in sss.split(b_df.values, b_df[label].values):
+            test_df = b_df.iloc[te]
+            train_df = b_df.iloc[tr]
+        
+        print('Final train_df size, cases, controls: {} {} {}'.format(
+            train_df.shape[0], 
+            train_df.loc[train_df[label] == 1].shape[0],
+            train_df.loc[train_df[label] == 0].shape[0]))
+
+        print('Final test_df size, cases, controls: {} {} {}'.format(
+            test_df.shape[0], 
+            test_df.loc[test_df[label] == 1].shape[0],
+            test_df.loc[test_df[label] == 0].shape[0]))
+
+        test_df = test_df.rename(columns={'ID_1':'iid'})
+        test_df[['iid', label]].to_csv(test_ids_path, index=False)
+        
+        train_df = train_df.rename(columns={'ID_1':'iid'})
+        train_df[['iid', label]].to_csv(train_ids_path, index=False)
+        
+        D, p = stats.ks_2samp(train_df['old_ages'], test_df['old_ages'])
+        print("Test and train ages KS test: p={}".format(p))
+        plt.hist(train_df['old_ages'], density=True, alpha=0.5, label='Train')
+        plt.hist(test_df['old_ages'], density=True, alpha=0.5, label='Test')
+        plt.legend()
+        plt.savefig('{}/age_dist_{}.png'.format(param_folder, label))
+        plt.close()
+
+        D, p = stats.ks_2samp(train_df['f.31.0.0'], test_df['f.31.0.0'])
+        print("Test and train sex KS test: p={}".format(p))
+        plt.hist(train_df['f.31.0.0'], density=True, alpha=0.5, label='Train')
+        plt.hist(test_df['f.31.0.0'], density=True, alpha=0.5, label='Test')
+        plt.legend()
+        plt.savefig('{}/sex_dist_{}.png'.format(param_folder, label))
+        plt.close()
+
+def _find_all_ids(param_folder:str, phen_cov_path:str) -> None:
+    """From all possible indidividuals in the UKBB data, generate 1:1 
+    case:control split and save all ids to a file. Do this for Maternal
+    and Paternal histories.
+
+    Parameters
+    ----------
+    param_folder : str
+        Path to the folder containing experiment parameters or the
+        folder where all additional parameter files should be saved.
+    phen_cov_path : str
+        Path to the file containing the covariates and phenotype
+        information for all individuals in the cohort.
+    """
+    
+    with open(f'{param_folder}/covs_MATERNAL_MARIONI.yaml', 'r') as f:
+        covs = yaml.load(f, yaml.FullLoader)['COVARIATES']
+
     geno_id_path = '{}/geno_ids.csv'.format(param_folder)
     geno_ids = pd.read_csv(geno_id_path)['ID1'].values
 
@@ -141,24 +275,30 @@ def find_all_ids(param_folder:str, phen_cov_path:str) -> None:
     neuro_diag_path = '{}/Neuro_Diagnosis.csv'.format(param_folder)
     neuro_diag = pd.read_csv(neuro_diag_path)['ID1'].values
     
+    ukb_withdrawn_ids = pd.read_csv(
+            'params/ukb_withdrawn_04May23.csv')['ID_1'].to_list()
+
     df = pd.read_csv(phen_cov_path, sep=' ')
     df.set_index('ID_1', drop=False, inplace=True)
     df = df.loc[df.index.isin(geno_ids)]
+    df = df.loc[~df.index.isin(ukb_withdrawn_ids)]
     print('Shape after retaining only those iids in genotype file: {}'.format(df.shape))
 
     # Remove people with AD diagnosis but in the FH control set 
     df = df.loc[~(df.index.isin(ad_diag) & 
         ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
     
-    df.dropna(subset=['f.31.0.0', 'f.21003.0.0'], inplace=True)
-    print('Shape after dropping missing age and sex: {}'.format(df.shape))
+    df.dropna(subset=covs, inplace=True)
+    print('Shape after dropping missing covariates: {}'.format(df.shape))
     
-    df = df.loc[~((df['MATERNAL_MARIONI'] == 1) & (df['PATERNAL_MARIONI'] == 1))]
-    print('Shape after removing people with both mat and pat history: {}'.format(df.shape))
+    # df = df.loc[~((df['MATERNAL_MARIONI'] == 1) & (df['PATERNAL_MARIONI'] == 1))]
+    # print('Shape after removing people with both mat and pat history: {}'.format(df.shape))
+    
     old_len = df.shape[0]
-    
-    df = df.loc[~(df.index.isin(neuro_diag) & 
-        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
+    df = df.loc[~(
+        df.index.isin(neuro_diag) & 
+        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0))
+        )]
     new_len = df.shape[0]
     print('Number of Neuro diagnosed removed: {}'.format(old_len-new_len))
     
@@ -258,9 +398,10 @@ def dosage_percentage():
 if __name__ == '__main__':
     
     # 1. Find all train and test ids
-    # find_all_ids(
-    #     param_folder='Code_AD/params', 
-    #     phen_cov_path='/mnt/sdc/UKBB_2/Variables_UKB.txt')
+    find_all_ids(
+        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens5', 
+        phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+        control_prop=5.0)
 
     # Cell Reports reviewer rerun
     # filter_ids(
@@ -268,10 +409,10 @@ if __name__ == '__main__':
     #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt')
     
     # dosage_percentage()
-    grp_size = 10
-    create_groups(
-            label='MATERNAL_MARIONI',
-            param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens2', 
-            phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-            grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
-        )
+    # grp_size = 10
+    # create_groups(
+    #         label='MATERNAL_MARIONI',
+    #         param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens2', 
+    #         phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+    #         grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
+    #     )

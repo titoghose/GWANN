@@ -360,6 +360,54 @@ def sensitivity_5():
                 # dummy_genes.model_pipeline(exp_name='Sens2Dummy', label=label, 
                 #             param_folder=param_folder, gpu_list=gpu_list)
 
+def sensitivity_6():
+    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens6'
+    
+    glist = (['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'] +
+            ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
+            ['ICAM3', 'ATP2C1', 'GLIS3', 'ARHGEF28']) # GWANNv1 Mat AD within bottom 20 genes that passed significance
+    # glist = ['APOE']
+    gpu_list = list(np.repeat([1, 2, 3, 4, 5, 6, 7], 3))
+
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+        with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
+            sys_params = yaml.load(f, Loader=yaml.FullLoader)
+            
+        grp_size = 20
+        for oversample in [20]:
+            for si, seed in enumerate([82]):
+                exp_name = f'Sens6'
+                grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
+                
+                create_groups(
+                    label=label,
+                    param_folder=param_folder, 
+                    phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+                    grp_size=grp_size, oversample=oversample,
+                    random_seed=seed, grp_id_path=grp_id_path
+                )
+
+                # sys_params['GROUP_IDS_PATH'] = grp_id_path
+                # sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
+                # sys_params['PARAMS_PATH'] = param_folder
+
+                # with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
+                #     yaml.dump(sys_params, f)
+                    
+                # cov_model.model_pipeline(label=label, param_folder=param_folder,
+                #                          gpu_list=gpu_list[:2], exp_suffix=exp_name, 
+                #                          grp_size=grp_size)
+                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                #                          device=gpu_list[0], exp_suffix=exp_name)
+                
+                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list,
+                #             glist=glist, grp_size=grp_size)
+                # dummy_genes.model_pipeline(exp_name='Sens2Dummy', label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list)
+
+
+
 if __name__ == '__main__':
     # chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
@@ -371,4 +419,5 @@ if __name__ == '__main__':
     # sensitivity_2()
     # sensitivity_3()
     # sensitivity_4()
-    sensitivity_5()
+    # sensitivity_5()
+    sensitivity_6()

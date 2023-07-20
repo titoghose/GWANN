@@ -175,7 +175,7 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
     print('Number of Neuro diagnosed removed: {}'.format(old_len-new_len))
     
     # Group ages
-    new_ages = group_ages(df['f.21003.0.0'].values, 3)
+    new_ages = group_ages(df['f.21003.0.0'].values, 10)
     df['old_ages'] = df['f.21003.0.0'].values
     df['f.21003.0.0'] = new_ages
     print('Number of unique age groups: {}'.format(
@@ -199,7 +199,6 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
                 (lab_df['PATERNAL_MARIONI'] == 1))]
 
         lab_df = lab_df.loc[lab_df[label].isin([0, 1])]
-        print(lab_df.shape)
 
         # Get controls balanced by age and sex
         b_df = balance_by_agesex(lab_df, label, control_prop=control_prop)
@@ -232,21 +231,27 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
         train_df = train_df.rename(columns={'ID_1':'iid'})
         train_df[['iid', label]].to_csv(train_ids_path, index=False)
         
-        D, p = stats.ks_2samp(train_df['old_ages'], test_df['old_ages'])
-        print("Test and train ages KS test: p={}".format(p))
-        plt.hist(train_df['old_ages'], density=True, alpha=0.5, label='Train')
-        plt.hist(test_df['old_ages'], density=True, alpha=0.5, label='Test')
-        plt.legend()
-        plt.savefig('{}/age_dist_{}.png'.format(param_folder, label))
-        plt.close()
-
-        D, p = stats.ks_2samp(train_df['f.31.0.0'], test_df['f.31.0.0'])
-        print("Test and train sex KS test: p={}".format(p))
-        plt.hist(train_df['f.31.0.0'], density=True, alpha=0.5, label='Train')
-        plt.hist(test_df['f.31.0.0'], density=True, alpha=0.5, label='Test')
-        plt.legend()
-        plt.savefig('{}/sex_dist_{}.png'.format(param_folder, label))
-        plt.close()
+        for k, v in {'ages':'old_ages', 'sex':'f.31.0.0'}.items():
+            D, p = stats.ks_2samp(train_df[v], test_df[v])
+            print(f"Test and train {k} KS test: p={p}")
+            
+            D, p = stats.ks_2samp(train_df.loc[train_df[label]==0][v], 
+                                  train_df.loc[train_df[label]==1][v])
+            print(f"Train case vs control {k} KS test: p={p}")
+            
+            D, p = stats.ks_2samp(test_df.loc[test_df[label]==0][v], 
+                                  test_df.loc[test_df[label]==1][v])
+            print(f"Test case vs control {k} KS test: p={p}")
+            
+            train_df['type'] = 'train'
+            test_df['type'] = 'test'
+            comb_df = pd.concat((train_df, test_df))
+            g = sns.displot(data=comb_df, x=v, col='type', hue=label, 
+                        kind='hist', common_bins=True, common_norm=False, 
+                        stat='density', alpha=0.5)
+            g.add_legend()
+            plt.savefig(f'{param_folder}/{k}_dist_{label}.png')
+            plt.close()
 
 def _find_all_ids(param_folder:str, phen_cov_path:str) -> None:
     """From all possible indidividuals in the UKBB data, generate 1:1 
@@ -399,9 +404,9 @@ if __name__ == '__main__':
     
     # 1. Find all train and test ids
     find_all_ids(
-        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens5', 
+        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens6', 
         phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-        control_prop=5.0)
+        control_prop=1.0)
 
     # Cell Reports reviewer rerun
     # filter_ids(

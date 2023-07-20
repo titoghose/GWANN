@@ -333,30 +333,30 @@ def sensitivity_5():
                 exp_name = f'Sens5_{si}_{oversample}'
                 grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
                 
-                create_groups(
-                    label=label,
-                    param_folder=param_folder, 
-                    phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-                    grp_size=grp_size, oversample=oversample,
-                    random_seed=seed, grp_id_path=grp_id_path
-                )
+                # create_groups(
+                #     label=label,
+                #     param_folder=param_folder, 
+                #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+                #     grp_size=grp_size, oversample=oversample,
+                #     random_seed=seed, grp_id_path=grp_id_path
+                # )
 
-                # sys_params['GROUP_IDS_PATH'] = grp_id_path
-                # sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
+                sys_params['GROUP_IDS_PATH'] = grp_id_path
+                sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
+                sys_params['PARAMS_PATH'] = param_folder
 
-                # with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
-                #     yaml.dump(sys_params, f)
+                with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
+                    yaml.dump(sys_params, f)
                     
-                # cov_model.model_pipeline(label=label, param_folder=param_folder,
-                #                          gpu_list=gpu_list[:2], exp_suffix=exp_name, 
-                #                          grp_size=grp_size)
-                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                #                          device=gpu_list[0], exp_suffix=exp_name)
+                cov_model.model_pipeline(label=label, param_folder=param_folder,
+                                         gpu_list=gpu_list[:2], exp_suffix=exp_name, 
+                                         grp_size=grp_size)
+                cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                                         device=gpu_list[0], exp_suffix=exp_name)
                 
-                # exp_name = f'Sens4.1_{si}_{oversample}'
-                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list,
-                #             glist=glist, grp_size=grp_size)
+                run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list,
+                            glist=glist, grp_size=grp_size)
                 # dummy_genes.model_pipeline(exp_name='Sens2Dummy', label=label, 
                 #             param_folder=param_folder, gpu_list=gpu_list)
 

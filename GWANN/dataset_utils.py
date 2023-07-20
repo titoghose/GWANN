@@ -216,6 +216,148 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         return
     
     df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
+    df.drop_duplicates('ID_1', inplace=True)
+    df.set_index('ID_1', drop=False, inplace=True)
+    
+    train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
+    train_ids = pd.read_csv(train_ids_path)
+    test_ids_path = '{}/test_ids_{}.csv'.format(param_folder, label)
+    test_ids = pd.read_csv(test_ids_path)
+    
+    X = df.loc[train_ids['iid'].values]
+    X[label] = train_ids[label].values
+    Xt = df.loc[test_ids['iid'].values]
+    Xt[label] = test_ids[label].values
+
+    grp_ids = {}
+    grp_labels = {}
+    for split_name, X_ in {'train':X, 'test':Xt}.items():
+        print(f'Split name: {split_name}')
+        # split_groups[0] - cont, split_groups[1] - case
+        split_groups = [[], []]
+        split_group_labels = [[], []]
+        
+        num_cases = X_.loc[X_[label] == 1].shape[0]
+        for j in [0, 1]:
+            print(f'Control (0) or Case (1) : {j}')
+            iids = X_.loc[X_[label] == j].index.values
+            
+            ovs_ratio = int(np.round(len(iids)/num_cases))
+            ovs = oversample//ovs_ratio
+            _, rem = divmod(len(iids)*ovs, grp_size)
+            
+            print(f'\tNum samples: {len(iids)}')
+            print(f'\tGroup size: {grp_size}')
+            print(f'\tOversample: {ovs}')
+            print(f'\tNum extra samples to be dropped: {rem}')
+            
+            drop_idxs = []
+            if rem != 0:
+                drop_iids = np.random.choice(len(iids), size=rem, replace=False)
+                if ovs < grp_size:
+                    drop_chunks = np.repeat(np.arange(ovs), 1+rem//ovs)[:rem]
+                    np.random.seed(random_seed)
+                    np.random.shuffle(drop_chunks)
+                else:
+                    drop_chunks = np.random.choice(ovs, size=rem, replace=False)
+                drop_chunks = drop_chunks * len(iids)
+                drop_idxs = drop_iids + drop_chunks
+                
+            chunk_size = grp_size*(len(iids)//grp_size)
+            print(f'\tChunk size: {chunk_size}')
+
+            iids = np.tile(iids, ovs)
+            iids = np.delete(iids, drop_idxs)
+            assert len(iids)%grp_size == 0
+
+            num_chunks = int(np.ceil(len(iids)/chunk_size))
+            print(f'\tNum chunks: {num_chunks}')
+            print(f'\tLast chunk size: {len(iids)%chunk_size}')
+
+            np.random.seed(random_seed)
+            chunk_r_seeds = np.random.randint(0, 10000, size=num_chunks)
+        
+            for ichunk, rseed in enumerate(chunk_r_seeds):
+                
+                chunk_iids = iids[ichunk*chunk_size:(ichunk+1)*chunk_size]
+                # print(f'\t     Chunk {ichunk} size: {len(chunk_iids)}')
+                np.random.seed(rseed)
+                np.random.shuffle(chunk_iids)
+                
+                sex = X_.loc[chunk_iids]['f.31.0.0'].values
+                age = X_.loc[chunk_iids]['f.21003.0.0'].values
+                vprint('Ages : {}'.format(np.unique(age)))
+                age = group_ages(age, num_grps=3)
+
+                n_splits = round(len(chunk_iids)/grp_size)
+                # print(f'\t     Num splits: {n_splits}')
+                
+                # Combine age groups and sex to form stratified groups
+                age_sex = np.add(age, sex*3)
+                vprint('Age groups: {}'.format(np.unique(age)))
+                vprint('Sex: {}'.format(np.unique(sex)))
+                vprint('Unique age_sex groups: {}'.format(np.unique(age_sex)))
+                
+                if n_splits > 1:
+                    skf = StratifiedKFold(
+                                n_splits=n_splits, 
+                                shuffle=True, 
+                                random_state=4231)
+                    for _, ind in skf.split(chunk_iids, age_sex):
+                        assert len(set(chunk_iids[ind])) == grp_size, \
+                            f'Group: {sorted(chunk_iids[ind])}, contains duplicate iids'
+                        split_groups[j].append(chunk_iids[ind])
+                        split_group_labels[j].append(j)
+                else:
+                    split_groups[j].append(chunk_iids)
+                    split_group_labels[j].append(j)
+        
+        grp_ids[split_name] = np.concatenate((split_groups[0], split_groups[1]))
+        grp_labels[split_name] = np.concatenate((split_group_labels[0], split_group_labels[1]))
+        print(f'Group ids size: {grp_ids[split_name].shape}')
+        print(f'Group labels size: {grp_labels[split_name].shape}')
+        n_conts = np.where(grp_labels[split_name] == 0)[0].shape[0]
+        n_cases = np.where(grp_labels[split_name] == 1)[0].shape[0]
+        assert np.abs(n_cases-n_conts) <= 1
+
+    np.savez(grp_id_path,
+        train_grps=grp_ids['train'], train_grp_labels=grp_labels['train'],
+        test_grps=grp_ids['test'], test_grp_labels=grp_labels['test'])
+
+def __create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=10,
+            oversample:int=10, random_seed:int=82, grp_id_path:str='') -> None:
+    """Convert data arrays to grouped data arrays after balancing as
+    best as possible for age and sex.
+
+    Parameters
+    ----------
+    label : str
+        Prediction label/phenotype for the dataset.
+    param_folder : str
+        Path to the folder containing experiment parameters or the
+        folder where all additional parameter files should be saved.
+    phen_cov_path : str
+        Path to the file containing the covariates and phenotype
+        information for all individuals in the cohort.    
+    grp_size : int, optional
+        Size of groups, by default 10
+    oversample : int, optional
+        Factor to oversample data samples by before forming into
+        groups, by default 10
+    """
+    assert oversample <= grp_size, \
+        'Oversample > Group size, cannot ensure that groups have no duplicated iids'
+    
+    print('\nGrouping ids for for: {}'.format(label))
+
+    if len(grp_id_path) == 0:
+        grp_id_path = '{}/group_ids_{}.npz'.format(param_folder, label)
+    
+    if os.path.isfile(grp_id_path):
+        print('Group ids file exists')
+        return
+    
+    df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
     df.set_index('ID_1', drop=False, inplace=True)
     
     train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
@@ -490,11 +632,15 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     log_creation = lock is not None
     save_data = True
 
-    test_ids_f = sys_params['TEST_IDS_PATH']
-    test_ids = pd.read_csv(test_ids_f, dtype={'iid':str})['iid'].to_list()
+    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
+    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
+    test_labels = test_ids_df[label].to_list()
+    test_ids = test_ids_df['iid'].to_list()
     
-    train_ids_f = sys_params['TRAIN_IDS_PATH']
-    train_ids = pd.read_csv(train_ids_f, dtype={'iid':str})['iid'].to_list()
+    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_labels = train_ids_df[label].to_list()
+    train_ids = train_ids_df['iid'].to_list()
 
     data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
                 f'chr{chrom}_{gene}_{buffer}bp_{label}.csv')
@@ -515,6 +661,8 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat = pd.merge(data_mat, phen_cov[covs+[label,]].loc[train_ids+test_ids], 
                             left_index=True, right_index=True)
     
+    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
+
     edu_col = 'f.6138'
     if edu_col in covs:
         data_mat.loc[data_mat[edu_col] == -7, edu_col] = np.nan
@@ -611,17 +759,23 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
         5 - Names of each column in the data arrays (list)
         6 - Number of SNPs in the data arrays (int)
     """
-    test_ids_f = sys_params['TEST_IDS_PATH']
-    test_ids = pd.read_csv(test_ids_f, dtype={'iid':str})['iid'].to_list()
+    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
+    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
+    test_labels = test_ids_df[label].to_list()
+    test_ids = test_ids_df['iid'].to_list()
     
-    train_ids_f = sys_params['TRAIN_IDS_PATH']
-    train_ids = pd.read_csv(train_ids_f, dtype={'iid':str})['iid'].to_list()
+    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_labels = train_ids_df[label].to_list()
+    train_ids = train_ids_df['iid'].to_list()
 
     data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/wins/' +
                 f'chr{chrom}_{gene}_{win}_{buffer}bp_{label}.csv')
 
     data_mat = pd.read_csv(data_path, index_col=0, comment='#')
     data_mat.index = data_mat.index.astype(str)
+    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
+
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
     
@@ -721,7 +875,8 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
 
     return X, y, X_test, y_test, class_weights, data_cols, num_snps
 
-def balance_by_agesex(data:pd.DataFrame, label_col:str) -> pd.DataFrame:
+def balance_by_agesex(data:pd.DataFrame, label_col:str, 
+                      control_prop:float=1.0) -> pd.DataFrame:
     """Function to return a 1:1 balanced version of a dataset. Balancing is 
     done to ensure the same resultant distribution for age and sex in 
     case and control.
@@ -732,6 +887,8 @@ def balance_by_agesex(data:pd.DataFrame, label_col:str) -> pd.DataFrame:
         CSV data file
     label_col : str
         Column in data that corresponds to the label to balance for
+    control_prop : float
+        Proportion of controls wrt cases, by default 1.0
 
     Returns 
     -------
@@ -754,6 +911,7 @@ def balance_by_agesex(data:pd.DataFrame, label_col:str) -> pd.DataFrame:
     # Randomly sample controls from same distribution of age and sex as in case
     cases = data.loc[data[label_col]==1]
     conts = pd.DataFrame()
+    cont_age = {'{},{}'.format(a[0],a[1]):0 for a in x}
     for ca in case_age.keys():
         a, s = float(ca.split(',')[0]), float(ca.split(',')[1])
         tmp_df = data.loc[(data[label_col] == 0) & 
@@ -761,9 +919,23 @@ def balance_by_agesex(data:pd.DataFrame, label_col:str) -> pd.DataFrame:
                             (data['f.31.0.0'] == s)]
         if len(tmp_df) == 0:
             continue
-        tmp_df = tmp_df.sample(case_age[ca], replace=False, random_state=7639)
+        required_grp_cnt = int(case_age[ca]*control_prop)
+        tmp_df = tmp_df.sample(min(tmp_df.shape[0], required_grp_cnt), 
+                               replace=False, random_state=7639)
         conts = conts.append(tmp_df)
         del(tmp_df)
+
+    # If the count of controls is not the required count after trying to
+    # balance for age and sex, randomly sample the extra required controls
+    required_cnt = int(np.sum(list(case_age.values()))*control_prop)
+    if len(conts) < required_cnt:
+        remaining_conts = data.loc[
+            (data[label_col] == 0) & 
+            (~data.index.isin(conts.index))]
+        sample_cnt = min(remaining_conts.shape[0], required_cnt-len(conts))
+        conts = pd.concat((
+            conts, 
+            remaining_conts.sample(sample_cnt, replace=False, random_state=7639)))
 
     balanced_data = cases.append(conts)
     vprint('Case count: {}'.format
@@ -825,10 +997,14 @@ def write_and_return_data(gene_dict:dict, chrom:str, lock:Optional[mp.Lock],
     """
    
     pgen_prefix = f'{sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
-    train_ids = pd.read_csv(sys_params["TRAIN_IDS_PATH"], 
-                            dtype={'iid':str})['iid'].to_list()
-    test_ids = pd.read_csv(sys_params["TEST_IDS_PATH"],
-                           dtype={'iid':str})['iid'].to_list()
+    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
+    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
+    test_ids = test_ids_df['iid'].to_list()
+    
+    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_ids = train_ids_df['iid'].to_list()
+    
     pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=train_ids+test_ids)
     
     phen_cov = pd.read_csv(sys_params['PHEN_COV_PATH'], 

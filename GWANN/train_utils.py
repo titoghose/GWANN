@@ -1161,7 +1161,6 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     epochs = training_dict['epochs']
     scheduler = training_dict['scheduler']
     device = training_dict['device']
-    class_weights = training_dict['class_weights']
     
     if Xt is not None:
         train_ind = np.concatenate((train_ind, val_ind))
@@ -1173,10 +1172,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     train_sampler = SKFBatchSampler(train_dataset, batch_size=batch_size, shuffle=True)
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler)
     
-    train_inf_dataloader = DataLoader(dataset=train_dataset, batch_size=8192, shuffle=False)
-    
     val_dataset = GWASDataset(Xval, yval)
-    val_dataloader = DataLoader(dataset=val_dataset, batch_size=2048, shuffle=False)
 
     # train_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
     #     batch_size=batch_size, shuffle=True)
@@ -1188,7 +1184,6 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     # Send model to device and initialise weights and metric tensors
     model.to(device)
     loss_fn = loss_fn.to(device)
-    class_weights = torch.tensor(class_weights, device=device).float()
     best_ep = 0
     best_val = torch.tensor(0).float()
     agg_conf_mat = torch.zeros((epochs, 2, 4))
@@ -1214,18 +1209,14 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             optimiser.step()
 
         # Infer
-        for si, loader in enumerate([train_inf_dataloader, val_dataloader]):
-            for bnum, sample in enumerate(loader):
-                X_batch = sample[0].to(device)
-                y_batch = sample[1].long().to(device)
-                
-                _, conf_mat, loss = infer(
-                    X_batch, y_batch, model, loss_fn, device, 
-                    class_weights=class_weights, batch_size=-1)
-                agg_conf_mat[epoch][si] += torch.as_tensor(conf_mat[0])
-                avg_loss[epoch][si] = running_avg(
-                    avg_loss[epoch][si], loss[0], bnum+1)
-
+        for si, dataset in enumerate([train_dataset, val_dataset]):
+            X_tensor = dataset.data
+            y_tensor = dataset.labels
+            
+            _, conf_mat, loss = infer(
+                X_tensor, y_tensor, model, loss_fn, device)
+            agg_conf_mat[epoch][si] += torch.as_tensor(conf_mat)
+            avg_loss[epoch][si] = loss
             _, _, _, acc, _ = metrics_from_conf_mat(agg_conf_mat[epoch][si])
             avg_acc[epoch][si] = acc
         
@@ -1395,7 +1386,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
 
 def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module, 
           loss_fn:nn.Module, device:Union[str, int], perms:Optional[list]=None, 
-          num_snps:int=0, class_weights:list=[1,1], batch_size:int=256) -> tuple:
+          num_snps:int=0, class_weights:list=[1,1], batch_size:int=2048) -> tuple:
     """Model inference.
 
     Parameters:
@@ -1431,55 +1422,47 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         loss : float
             Loss.
     """
-    if perms is None:
-        perms = [torch.arange(0, X_tensor.shape[0]),]
-
-    if batch_size == -1:
-        batch_size = X_tensor.shape[0]
-    
-    X_tensor = X_tensor.to(device)
-    y_tensor = y_tensor.to(device)
-
     conf_mats = []
     y_preds = []
     losses = []
     
     torch.backends.cudnn.benchmark = True
     with torch.no_grad():
-        for perm in perms:
-            X_ = X_tensor.clone()
-            X_[:, :, :num_snps] = X_[perm, :, :num_snps]
+        dataset = GWASDataset(X_tensor, y_tensor)
+        dataloader = DataLoader(dataset=dataset, batch_size=batch_size, 
+                                shuffle=False)
+        y_pred = torch.tensor([], device=device).long()
+        loss = 0.0
+        
+        for bnum, sample in enumerate(dataloader):
+            X_batch = sample[0].to(device)
+            y_batch = sample[1].long().to(device)
+            
+            model.eval()
+            model = model.to(device)
+            loss_fn = loss_fn.to(device)
+            
+            raw_out = model.forward(X_batch)
+            y_pred = torch.cat(
+                (y_pred, pred_from_raw(raw_out.detach().clone())))
+            batch_loss = loss_fn(raw_out, y_batch).detach().item()
+            loss = running_avg(loss, batch_loss, bnum+1)
 
-            dataloader = FastTensorDataLoader(X_, y_tensor, batch_size=batch_size)
-            y_pred = torch.tensor([], device=device).long()
-            loss = 0.0
-            
-            for bnum, sample in enumerate(dataloader):
-                X_batch = sample[0]
-                y_batch = sample[1]
-                
-                model.eval()
-                model = model.to(device)
-                loss_fn = loss_fn.to(device)
-                
-                raw_out = model.forward(X_batch)
-                y_pred = torch.cat(
-                    (y_pred, pred_from_raw(raw_out.detach().clone())))
-                batch_loss = loss_fn(raw_out, y_batch).detach().item()
-                loss = running_avg(loss, batch_loss, bnum+1)
-    
-            if len(y_tensor) != len(y_pred):
-                diff = len(y_tensor) - len(y_pred)
-                conf_mat = gen_conf_mat(y_tensor[:-diff].detach().clone(), y_pred,
-                    class_weights=class_weights)
-            else:
-                conf_mat = gen_conf_mat(y_tensor.detach().clone(), 
-                    y_pred.to(y_tensor.device), class_weights=class_weights)
-            
-            y_preds.append(y_pred.cpu())
-            losses.append(loss)
-            conf_mats.append(list(conf_mat))
-            del X_
+        # if len(y_tensor) != len(y_pred):
+        #     diff = len(y_tensor) - len(y_pred)
+        #     conf_mat = gen_conf_mat(y_tensor[:-diff].detach().clone(), y_pred,
+        #         class_weights=class_weights)
+        # else:
+        class_weights = compute_class_weight(class_weight='balanced', 
+                                        classes=[0, 1], 
+                                        y=y_tensor.cpu().numpy())
+        class_weights = torch.tensor(class_weights, device=device).float()
+        conf_mat = gen_conf_mat(y_tensor.detach().clone(), 
+            y_pred.to(y_tensor.device), class_weights=class_weights)
+        
+        y_preds = y_pred.cpu()
+        losses = loss
+        conf_mats = list(conf_mat)
     torch.backends.cudnn.benchmark = False
 
     return y_preds, conf_mats, losses
@@ -1530,295 +1513,6 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     best_test_loss = loss[best_ep, 1].item()
 
     return best_ep, best_test_acc, best_test_loss
-
-
-# Permutatation Testing functions
-def case_control_permutations(labels, k, start=0):
-    """
-    Return k permutations of the indices (each one different from the 
-    other). The indices will only be shuffled between case and control. 
-    Hence, after permuting case indices, they will be assigned to 
-    control and after vice versa. This ensures that no case (control) 
-    individual is assigned the data of another case (control) 
-    individual. 
-
-    Parameters
-    ----------
-    labels: list
-        List of data labels.
-    k: int
-        Number of permutations.
-    start : int 
-        Used to initialise the random number seed. Also if start=0, the
-        permutation is just the range(len(labels)), so it is equivalent
-        to the original order without any shuffling. 
-
-    Returns
-    -------
-    numpy ndarray
-        List of k permutations of the indices.
-    """
-
-    n = len(labels)
-    case_ind = np.where(labels == 1)[0]
-    control_ind = np.where(labels == 0)[0]
-
-    perms = np.empty((k, n), dtype=int)
-    
-    np.random.seed(1042343)
-    random_seeds = np.random.choice(np.arange(0, int(1e6)), start+k, replace=False)
-    random_seeds = random_seeds[start:]
-
-    for i in range(0, k):
-        np.random.seed(random_seeds[i])
-        case_perm = np.random.permutation(case_ind)
-        np.random.seed(random_seeds[i])
-        control_perm = np.random.permutation(control_ind)        
-        
-        # Make sure no case is in control and vice versa
-        assert len(np.intersect1d(case_perm, control_ind)) == 0
-        assert len(np.intersect1d(control_perm, case_ind)) == 0
-        
-        perms[i, case_ind] = case_perm
-        if len(case_ind) < len(control_perm):
-            perms[i, case_ind] = control_perm[:len(case_ind)]
-        else:
-            perms[i, case_ind[:len(control_perm)]] = control_perm
-        
-        perms[i, control_ind] = control_perm
-        if len(control_ind) < len(case_perm):
-            perms[i, control_ind] = case_perm[:len(control_ind)]
-        else:
-            perms[i, control_ind[:len(case_perm)]] = case_perm
-        
-        # Make sure that no sample appears twice in a permutation
-        assert len(np.unique(perms[i])) == len(perms[i])
-
-    if start == 0:
-        perms[0] = np.arange(n, dtype=int)
-
-    # Make sure that no 2 permutations are the same 
-    num_unique_perms = len(np.unique(perms, axis=0))
-    assert num_unique_perms == k
-
-    return perms
-
-def random_permutations(labels, k, start=0):
-    """
-    Return k random permutations of the indices (each one different from 
-    the other).
-
-    Parameters
-    ----------
-    labels: list
-        List of data labels.
-    k: int
-        Number of permutations.
-    start : int 
-        Used to initialise the random number seed. Also if start=0, the
-        permutation is just the range(len(labels)), so it is equivalent
-        to the original order without any shuffling. 
-
-    Returns
-    -------
-    numpy ndarray
-        List of k permutations of the indices.
-    """
-    n = len(labels)
-    perms = np.empty((k, n), dtype=int)
-
-    for i in range(0, k):
-        np.random.seed(start+i)
-        perms[i] = np.random.permutation(n)
-    if start == 0:
-        perms[0] = np.arange(n, dtype=int)
-    # Make sure that no 2 permutations are the same 
-    num_unique_perms = len(np.unique(perms, axis=0))
-    assert(num_unique_perms == k)
-
-    return perms
-
-def modified_permutation_test(model_path, X, y, X_test, y_test, num_snps,
-                            ptest_dict, device, class_weights=[1,1], 
-                            batch_size=-1):
-    """Function to run the modified version of the permutation test.
-    Instead of training the model on permuted data every single time,
-    the model is trained on the unpermuted data and then tested on
-    various permuted combinations. 
-
-    Parameters
-    ----------
-    model_path : str
-        Path to saved model to be used for inference.
-    X : ndarray
-        Training data to be permuted.
-    y : ndarray
-        Training labels.
-    X_test : ndarray
-        Testing data.
-    y_test : ndarray
-        Testing labels.
-    num_snps : int
-        Number of SNPs in the data
-    ptest_dict : dict
-        Dictionary containing the {num_perm, perm_method}
-    devices : list of str
-        List of GPUs to be used for the test.
-    class_weights : list or ndarray
-        Weights for each class to be used while calculating the metrics
-        and creating the loss function (default [1,1])
-
-    Returns
-    -------
-    p_values : dict
-        Dictionary of p-values calculated based on the different metrics
-    conf_mat : ndarray (nperms, 4)
-        Confusion matrix for unpermuted (index 0) and permuted data
-    f1 : ndarray (nperms,)
-        F1 scores for unpermuted (index 0) and permuted data
-    prec : ndarray (nperms,)
-        Precision for unpermuted (index 0) and permuted data.
-    rec : ndarray (nperms,)
-        Recall for unpermuted (index 0) and permuted data.
-    acc : ndarray (nperms,)
-        Accuracy for unpermuted (index 0) and permuted data.
-    mcc : ndarray (nperms,)
-        MCC for unpermuted (index 0) and permuted data.
-    loss : ndarray (nperms,)
-        Loss for unpermuted (index 0) and permuted data.
-    """
-    # Load permutation test parameters
-    num_perm = ptest_dict['num_perm']
-    perm_method = ptest_dict['perm_method']
-    
-    if X_test is None:
-        splitter = StratifiedShuffleSplit(n_splits=1, test_size=0.1, 
-            random_state=447)
-        for train_ind, val_ind in splitter.split(X, y):
-            X = X[val_ind]
-            y = y[val_ind]
-    else:
-        X = X_test
-        y = y_test
-    
-    # Zeroing out covariates for inference
-    # X[:, :, num_snps:] = np.random.normal(0, 1, (X[:, :, num_snps:].shape))
-    # print(X[0])
-    
-    class_weights = torch.Tensor(class_weights)
-
-    # Test model
-    model = torch.load(model_path, map_location=torch.device('cpu'))
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
-    func_args = []
-    agg_conf_mat = []
-    agg_loss = []
-
-    # Run the inference for all permutations
-    s1 = datetime.datetime.now()
-    X = torch.from_numpy(X).float()
-    y = torch.from_numpy(y).long()
-    chunk_size = 1000
-    print('{} Starting'.format(model_path.split('/')[-1]))
-    for chunk in range(num_perm//chunk_size):
-        # permutations = perm_method(np.repeat(y, X.shape[1]), chunk_size, chunk_size*(chunk))
-        permutations = perm_method(y, chunk_size, start=chunk_size*(chunk))
-        _, cm, l = infer(X, y, model, loss_fn, device, 
-            permutations, num_snps, class_weights, batch_size)
-        agg_conf_mat.extend(cm)
-        agg_loss.extend(l)
-        print('{} Chunk {}'.format(model_path.split('/')[-1], chunk))
-    e1 = datetime.datetime.now()
-    print('\tInference time: ', (e1-s1))
-    
-    # Calculate all metrics from the confusion matrix
-    f1 = np.empty((num_perm,))
-    prec = np.empty((num_perm,))
-    rec = np.empty((num_perm,))
-    acc = np.empty((num_perm,))
-    mcc = np.empty((num_perm,))
-    loss = np.array(agg_loss)    
-    for i, cm in enumerate(agg_conf_mat):
-        f1[i], prec[i], rec[i], acc[i], mcc[i] = metrics_from_conf_mat(cm)
-
-    print(model_path.split('/')[-1], acc[0])
-    
-    # Get p-values based on different metrics
-    p_f1 = np.count_nonzero(f1 >= f1[0])/num_perm
-    p_prec = np.count_nonzero(prec >= prec[0])/num_perm
-    p_rec = np.count_nonzero(rec >= rec[0])/num_perm
-    p_acc = np.count_nonzero(acc >= acc[0])/num_perm 
-    p_mcc = np.count_nonzero(mcc >= mcc[0])/num_perm
-    p_loss = np.count_nonzero(loss <= loss[0])/num_perm
-    p_values = {'p_f1':p_f1, 'p_prec':p_prec, 'p_rec':p_rec, 'p_acc':p_acc,
-        'p_mcc':p_mcc, 'p_loss':p_loss}
-
-    return p_values, np.array(agg_conf_mat), f1, prec, rec, acc, mcc, loss
-    
-def hundredMillion_ptest(model_path, X, y, X_test, y_test, num_snps,
-                            ptest_dict, class_weights=[1,1], 
-                            batch_size=-1, device=0, perm_range=(0,0)):
-    
-    # Load permutation test parameters
-    num_perm = perm_range[1] - perm_range[0]
-    print(num_perm)
-    perm_method = ptest_dict['perm_method']
-    
-    if X_test is None:
-        splitter = StratifiedShuffleSplit(n_splits=1, test_size=0.1, 
-            random_state=447)
-        for train_ind, val_ind in splitter.split(X, y):
-            X = X[val_ind]
-            y = y[val_ind]
-    else:
-        X = X_test
-        y = y_test
-    
-    class_weights = torch.Tensor(class_weights)
-
-    # Test model
-    model = torch.load(model_path, map_location=torch.device('cpu'))
-    loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
-    func_args = []
-    agg_conf_mat = []
-    agg_loss = []
-
-    # Run the inference for all permutations
-    s1 = datetime.datetime.now()
-    X = torch.from_numpy(X).float()
-    y = torch.from_numpy(y).long()
-    chunk_size = int(1e2)
-    print('{} Starting'.format(model_path.split('/')[-1]))
-    for chunk in range(num_perm//chunk_size):
-        # permutations = perm_method(np.repeat(y, X.shape[1]), chunk_size, chunk_size*(chunk))
-        permutations = perm_method(y, chunk_size, 
-            start=perm_range[0] + chunk_size*(chunk))
-        _, cm, l = infer(X, y, model, loss_fn, device, 
-            permutations, num_snps, class_weights, batch_size)
-        agg_conf_mat.extend(cm)
-        agg_loss.extend(l)
-        print('{} Chunk {}'.format(model_path.split('/')[-1], chunk))
-    e1 = datetime.datetime.now()
-    print('\tInference time: ', (e1-s1))
-    
-    # Calculate all metrics from the confusion matrix
-    f1 = np.empty((num_perm,))
-    prec = np.empty((num_perm,))
-    rec = np.empty((num_perm,))
-    acc = np.empty((num_perm,))
-    mcc = np.empty((num_perm,))
-    loss = np.array(agg_loss)    
-    for i, cm in enumerate(agg_conf_mat):
-        f1[i], prec[i], rec[i], acc[i], mcc[i] = metrics_from_conf_mat(cm)
-    
-    print(perm_range[0] + chunk_size*(chunk), acc[0])
-    
-    p_values = None
-
-    return p_values, np.array(agg_conf_mat), f1, prec, rec, acc, mcc, loss
-    # return (None, np.ones((int(1e7), 4)), np.ones(int(1e7)), 
-    #     np.ones(int(1e7)), np.ones(int(1e7)), np.ones(int(1e7)), 
-    #     np.ones(int(1e7)), np.ones(int(1e7)))
 
 # Hyperparamter tuning/search functions
 def hyperparam_search(X, y, num_comb, class_weights, hyperparams, log, devices, 

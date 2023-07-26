@@ -5,6 +5,9 @@ import os
 import traceback
 import warnings
 from typing import Optional, Union
+from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
+import torch
 
 warnings.filterwarnings('ignore')
 
@@ -14,10 +17,11 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 import yaml
+import shap
 
 from GWANN.dataset_utils import PGEN2Pandas, load_data, load_win_data
 from GWANN.train_utils import create_train_plots, train
-
+from GWANN.models import Diff
 
 class Experiment:
     def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
@@ -67,6 +71,7 @@ class Experiment:
         self.gene_type = ''
     
     def __set_params__(self):
+
         """Load the YAML file containing system specific paths and 
         parameters.
         """
@@ -382,3 +387,59 @@ class Experiment:
             raise e
         finally:
             lock.release()
+
+    def calculate_shap(self, gene_dict:dict, device:str) -> Figure:
+        
+        gene = gene_dict['gene']
+        data_tuple = self.__gen_data__(gene_dict=gene_dict, 
+                                       only_covs=self.only_covs)
+        X, y, X_test, y_test, cw, data_cols, num_snps = data_tuple
+        if self.only_covs:
+            assert num_snps == 0
+            assert len(data_cols) == len(self.covs)
+
+        if not self.only_covs:
+            X = np.concatenate(
+                (X[:, :, :num_snps], self.cov_encodings['train']), 
+                axis=-1)
+            X_test = np.concatenate(
+                (X_test[:, :, :num_snps], self.cov_encodings['test']), 
+                axis=-1)
+
+        print(f'{gene:20} Group train data: {X.shape}')
+        print(f'{gene:20} Group test data: {X_test.shape}')
+        print(f'{gene:20} Class weights: {cw}')
+
+        model_name = f'{num_snps}_{gene}'
+        gene_dir = '{}/{}'.format(self.model_dir, gene)
+        model_path = f'{gene_dir}/{model_name}.pt'
+
+        model = torch.load(model_path, map_location=torch.device(device))
+        model = torch.nn.Sequential(
+            model,
+            Diff()
+        ).to(device)
+        # cov_model = torch.load(self.cov_model_path, map_location=torch.device(device))
+        # model = FullModel(gene_model, cov_model).to(device)
+        
+        X = torch.from_numpy(X).float().to(device)
+        y = torch.from_numpy(y).long().to(device)
+        X_test = torch.from_numpy(X_test).float().to(device)
+        y_test = torch.from_numpy(y_test).long().to(device)
+
+        data = X_test[torch.randperm(len(X_test))[:1000]]
+        e = shap.DeepExplainer(model, X[torch.randperm(len(X))[:1000]])
+        shap_vals = e.shap_values(data)
+        shap_vals = np.reshape(shap_vals, (shap_vals.shape[0]*shap_vals.shape[1], -1))
+
+        feature_names = data_cols
+        data = data.detach().cpu().numpy()
+        data = np.reshape(data, (data.shape[0]*data.shape[1], -1))
+        shap_plot_df = pd.DataFrame(data, columns=feature_names)
+        
+        fig = plt.figure()
+        sort_features = True
+        shap.summary_plot(shap_vals, shap_plot_df, plot_size=(7, 5), 
+                max_display=20, sort=sort_features, alpha=0.5, 
+                color_bar_label='')
+        return fig

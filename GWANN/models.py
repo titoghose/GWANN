@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class Diff(nn.Module):
+    def __init__(self):
+        super(Diff, self).__init__()
+
+    def forward(self, x):
+        return torch.unsqueeze(x[:, 1] - x[:, 0], dim=-1)
+
 class Identity(nn.Module):
     def __init__(self):
         super(Identity, self).__init__()

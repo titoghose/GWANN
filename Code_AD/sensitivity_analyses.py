@@ -11,7 +11,7 @@ from scipy.stats import spearmanr, rankdata
 import run_genes
 import dummy_genes
 import cov_model
-from GWANN.dataset_utils import create_groups
+from GWANN.dataset_utils import create_groups, __create_groups
 
 def sensitivity_1(chroms:list):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
@@ -361,22 +361,42 @@ def sensitivity_5():
                 #             param_folder=param_folder, gpu_list=gpu_list)
 
 def sensitivity_6():
-    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens6'
+    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens6.1'
     
-    glist = (['APOE', 'APOC1', 'TOMM40', 'BCAM', 'GEMIN7', 'PPP1R37'] +
-            ['ARSG', 'SMAD9', 'NFIA', 'SNRPB2'] + # GWANNv1 Mat AD within top 20 genes
-            ['ICAM3', 'ATP2C1', 'GLIS3', 'ARHGEF28']) # GWANNv1 Mat AD within bottom 20 genes that passed significance
-    # glist = ['APOE']
-    gpu_list = list(np.repeat([1, 2, 3, 4, 5, 6, 7], 3))
+    with open('params/gene_subsets.yaml', 'r') as f:
+        gdict = yaml.load(f, yaml.FullLoader)
+    # glist = gdict['Marioni_meta'] + gdict['GWANN_v1_Meta']
+    glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
+    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
+    gdf.set_index('symbol', inplace=True, drop=False)
+    # gdf = gdf.loc[glist]
+    gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
+    glist = gdf.index.to_list()
+    
+    gpu_list = list(np.repeat([0, 3, 5, 6, 7, 8, 9], 4))
 
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
+    # Ceate data
+    # for label in ['MATERNAL_MARIONI']:
+        # for chrom, idx in gdf.groupby('chrom').groups.items():
+        #     if str(chrom) not in chroms:
+        #         continue
+        #     gl = gdf.loc[idx]['symbol'].to_list()
+        #     print(chrom, len(gl))
+        #     print(gl)
+        #     run_genes.create_csv_data(label=label, param_folder=param_folder, 
+        #                               chrom=str(chrom), glist=gl, split=True)
+        # run_genes.create_csv_data(label=label, param_folder=param_folder, 
+        #                               chrom=str(1), glist=glist, split=True, 
+        #                               num_procs=103)
+
+    for label in ['MATERNAL_MARIONI']:
         with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
             sys_params = yaml.load(f, Loader=yaml.FullLoader)
             
         grp_size = 20
         for oversample in [20]:
-            for si, seed in enumerate([82]):
-                exp_name = f'Sens6'
+            for si, seed in enumerate([192]):
+                exp_name = f'Sens6.1'
                 grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
                 
                 create_groups(
@@ -387,25 +407,30 @@ def sensitivity_6():
                     random_seed=seed, grp_id_path=grp_id_path
                 )
 
-                # sys_params['GROUP_IDS_PATH'] = grp_id_path
-                # sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
-                # sys_params['PARAMS_PATH'] = param_folder
+                sys_params['GROUP_IDS_PATH'] = grp_id_path
+                sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
+                sys_params['PARAMS_PATH'] = param_folder
 
-                # with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
-                #     yaml.dump(sys_params, f)
+                with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
+                    yaml.dump(sys_params, f)
                     
-                # cov_model.model_pipeline(label=label, param_folder=param_folder,
-                #                          gpu_list=gpu_list[:2], exp_suffix=exp_name, 
-                #                          grp_size=grp_size)
-                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                #                          device=gpu_list[0], exp_suffix=exp_name)
+                cov_model.create_cov_only_data(label=label, param_folder=param_folder)
+                cov_model.model_pipeline(label=label, param_folder=param_folder,
+                                         gpu_list=gpu_list[:2], exp_suffix=exp_name, 
+                                         grp_size=grp_size, shap_plots=False)
+                cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                                         device=gpu_list[0], exp_suffix=exp_name)
                 
-                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list,
-                #             glist=glist, grp_size=grp_size)
-                # dummy_genes.model_pipeline(exp_name='Sens2Dummy', label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list)
-
+                run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list,
+                            glist=glist, grp_size=grp_size)
+                
+                # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
+                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list, 
+                #             grp_size=grp_size)
+        
+        break
 
 
 if __name__ == '__main__':

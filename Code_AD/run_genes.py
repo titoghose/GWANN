@@ -98,10 +98,12 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     
     if glist is not None:
         paths = []
-        for g in glist:
-            paths.extend([p for p in gene_win_paths if g in p])
+        for gwp in gene_win_paths:
+            if gwp.split('_')[1] in glist:
+                paths.append(gwp)
         gene_win_paths = paths
     
+    gene_win_paths = list(set(gene_win_paths))
     gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
     gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
@@ -110,7 +112,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
-    # gene_win_df = gene_win_df.iloc[:5]
+    gene_win_df.drop_duplicates(['gene', 'win'], inplace=True)
+    
     print(f'Number of gene win data files found: {gene_win_df.shape[0]}')
 
     # Setting the model for the Experiment

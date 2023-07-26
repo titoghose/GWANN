@@ -62,9 +62,10 @@ def calculate_p_values(label:str, exp_name:str):
 
     print(label)
     print('------------')
-    print(summ_df.loc[summ_df['P'] < (0.05/73310)])
+    # print(summ_df.loc[summ_df['P'] < (1e-5)])
+    print(summ_df.sort_values('P').head(10))
     print()
 
 if __name__ == '__main__':
-    calculate_p_values('MATERNAL_MARIONI', 'Sens2')
+    calculate_p_values('MATERNAL_MARIONI', 'Sens6.1')
     # calculate_p_values('PATERNAL_MARIONI')

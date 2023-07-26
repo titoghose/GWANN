@@ -142,8 +142,10 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
     ad_diag_path = 'params/AD_Diagnosis.csv'.format(param_folder)
     ad_diag = pd.read_csv(ad_diag_path)['ID1'].to_list()
     extended_AD_ids = pd.read_csv(
-        './params/UKB_AD_inc_c.sample', sep='\t').iloc[1:,:]['ID_1'].to_list()
+        './params/UKB_AD_inc_c.sample', sep='\t').iloc[1:,:]
+    extended_AD_ids = extended_AD_ids.loc[extended_AD_ids['phenotype']==1]['ID_1'].to_list()
     ad_diag = ad_diag + list(set(extended_AD_ids))
+    print(f'Num of AD diagnosed: {len(ad_diag)}')
 
     neuro_diag_path = 'params/Neuro_Diagnosis.csv'.format(param_folder)
     neuro_diag = pd.read_csv(neuro_diag_path)['ID_1'].values
@@ -160,11 +162,11 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
 
     # Remove people with AD diagnosis but in the FH control set and add
     # them to the maternal and paternal cases
-    df = df.loc[~(df.index.isin(ad_diag) & 
-        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
     df.loc[df.index.isin(ad_diag), 'MATERNAL_MARIONI'] = 1
     df.loc[df.index.isin(ad_diag), 'PATERNAL_MARIONI'] = 1
-
+    # df = df.loc[~(df.index.isin(ad_diag) & 
+    #     ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
+    
     df.dropna(subset=covs, inplace=True)
     print('Shape after dropping missing covariates: {}'.format(df.shape))
     
@@ -175,11 +177,14 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
     print('Number of Neuro diagnosed removed: {}'.format(old_len-new_len))
     
     # Group ages
-    new_ages = group_ages(df['f.21003.0.0'].values, 10)
+    new_ages = group_ages(df['f.21003.0.0'].values, 3)
     df['old_ages'] = df['f.21003.0.0'].values
     df['f.21003.0.0'] = new_ages
     print('Number of unique age groups: {}'.format(
         np.unique(df['f.21003.0.0'].values)))
+
+    df.loc[(df['PATERNAL_MARIONI'].isin([0, 1])) | 
+           (df['MATERNAL_MARIONI'].isin([0, 1]))][['ID_1', 'MATERNAL_MARIONI', 'PATERNAL_MARIONI']].to_csv('params/all_valid_iids.csv', index=False)
 
     # Ensure that MATERNAL_MARIONI dataset is created first
     for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:

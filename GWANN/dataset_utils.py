@@ -361,13 +361,15 @@ def __create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int
     df.set_index('ID_1', drop=False, inplace=True)
     
     train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
-    train_ids = pd.read_csv(train_ids_path)['iid'].values
+    train_ids = pd.read_csv(train_ids_path)
     test_ids_path = '{}/test_ids_{}.csv'.format(param_folder, label)
-    test_ids = pd.read_csv(test_ids_path)['iid'].values
+    test_ids = pd.read_csv(test_ids_path)
     
-    X = df.loc[train_ids]
-    Xt = df.loc[test_ids]
-    
+    X = df.loc[train_ids['iid'].values]
+    X[label] = train_ids[label].values
+    Xt = df.loc[test_ids['iid'].values]
+    Xt[label] = test_ids[label].values
+
     grp_ids = {}
     grp_labels = {}
     for split_name, X_ in {'train':X, 'test':Xt}.items():

@@ -9,6 +9,7 @@ import datetime
 import multiprocessing as mp
 from typing import Optional, Union
 
+import matplotlib.pyplot as plt
 import yaml
 import numpy as np
 import pandas as pd
@@ -128,7 +129,8 @@ def gen_cov_encodings(label:str, param_folder:str,
                  test_enc=test_enc.numpy())
 
 def model_pipeline(label:str, param_folder:str, gpu_list:list, 
-                   exp_suffix:str='', grp_size:int=10) -> None:
+                   exp_suffix:str='', grp_size:int=10, 
+                   shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -166,7 +168,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
         'optimiser': 'adam',
         'lr': 1e-4,
         'batch': 256,
-        'epochs': 200,
+        'epochs': 50,
     }
     exp = Experiment(prefix=exp_name, label=label, params_base=param_folder, 
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
@@ -180,7 +182,15 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
     print(genes)
 
     exp.parallel_run(genes)
-        
+    
+    if shap_plots:
+        gdict = {k:genes[k][0] for k in genes.keys()}
+        shap_fig = exp.calculate_shap(gene_dict=gdict, device=gpu_list[0])
+        if not os.path.exists(f'results_{exp_suffix}'):
+            os.mkdir(f'results_{exp_suffix}')
+        shap_fig.savefig(f'results_{exp_suffix}/{label}_cov_model_shap.png', dpi=100)
+        plt.close()
+
     e = datetime.datetime.now()
     print('\n\n', (e-s))
 

@@ -373,7 +373,7 @@ def sensitivity_6():
     gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
     glist = gdf.index.to_list()
     
-    gpu_list = list(np.repeat([0, 3, 5, 6, 7, 8, 9], 4))
+    gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7], 3))
 
     # Ceate data
     # for label in ['MATERNAL_MARIONI']:
@@ -414,21 +414,21 @@ def sensitivity_6():
                 with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
                     yaml.dump(sys_params, f)
                     
-                cov_model.create_cov_only_data(label=label, param_folder=param_folder)
-                cov_model.model_pipeline(label=label, param_folder=param_folder,
-                                         gpu_list=gpu_list[:2], exp_suffix=exp_name, 
-                                         grp_size=grp_size, shap_plots=False)
-                cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                                         device=gpu_list[0], exp_suffix=exp_name)
+                # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
+                # cov_model.model_pipeline(label=label, param_folder=param_folder,
+                #                          gpu_list=gpu_list[:2], exp_suffix=exp_name, 
+                #                          grp_size=grp_size, shap_plots=False)
+                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                #                          device=gpu_list[0], exp_suffix=exp_name)
                 
-                run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                            param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size)
+                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list,
+                #             glist=glist, grp_size=grp_size)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
-                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list, 
-                #             grp_size=grp_size)
+                dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list, 
+                            grp_size=grp_size)
         
         break
 

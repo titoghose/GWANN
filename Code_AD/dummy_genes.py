@@ -97,19 +97,31 @@ def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
     np.random.seed(93)
     random_seeds = np.random.randint(0, 10000, size=(1000,))
     i = 0
-    for f in tqdm.tqdm(flist, desc='Dummy file', position=0):
-        df = pd.read_csv(f'{data_folder}/{f}', index_col=0, comment='#')
-        for snum in tqdm.tqdm(range(50), desc='shuffle', position=1, leave=False):
-            shuffled_snps = df.iloc[:, :-(len(covs)+1)].values
-            np.random.seed(random_seeds[i])
-            np.random.shuffle(shuffled_snps)
-            df.iloc[:, :-(len(covs)+1)] = shuffled_snps
+    par_func = partial(shuffle_snps, data_folder=data_folder, covs=covs, 
+                       wins_folder=wins_folder)
+    fargs = []
+    num_shuffles = 50
+    for f in flist:
+        fargs.append((f, random_seeds[i*num_shuffles:(i+1)*num_shuffles]))
+        i += 1
+    with mp.Pool(len(fargs)) as pool:
+        pool.starmap(par_func, fargs)
+        
+def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list, 
+                 wins_folder:str) -> None:
+    df = pd.read_csv(f'{data_folder}/{f}', index_col=0, comment='#')
+    i = 0
+    for snum in tqdm.tqdm(range(50), desc=f'{f.split("_")[1]} - shuffle'):
+        shuffled_snps = df.iloc[:, :-(len(covs)+1)].values
+        np.random.seed(random_seeds[i])
+        np.random.shuffle(shuffled_snps)
+        df.iloc[:, :-(len(covs)+1)] = shuffled_snps
 
-            data_path_split = f.split('_')
-            data_path_split.insert(2, str(snum))
-            data_path = f'{wins_folder}/{"_".join(data_path_split)}'
-            df.to_csv(data_path)
-            i += 1
+        data_path_split = f.split('_')
+        data_path_split.insert(2, str(snum))
+        data_path = f'{wins_folder}/{"_".join(data_path_split)}'
+        df.to_csv(data_path)
+        i += 1
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
                    gpu_list:list, grp_size:int=10) -> None:
@@ -140,7 +152,6 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
-    # gene_win_df = gene_win_df.iloc[:5]
 
     # Setting the model for the Experiment
     model = GWANNet5
@@ -169,13 +180,15 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     
     # Remove genes that have already completed
     if os.path.exists(exp.summary_f):
-        done_genes = pd.read_csv(exp.summary_f) 
-        done_genes = done_genes['Gene'].apply(lambda x: x.split('_')[0]).to_list()
-        done_genes = set(done_genes)
-        print(len(done_genes))
-        gene_win_df = gene_win_df.loc[~gene_win_df['gene'].isin(done_genes)]
+        done_genes_df = pd.read_csv(exp.summary_f) 
+        print(done_genes_df.shape)
+        gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
+        gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
+    
     print(f'Number of genes left to train: {gene_win_df.shape[0]}')
-
+    
+    gene_win_df.sort_values(['gene', 'win', 'win_count'], 
+                            ascending=[True, True, False], inplace=True)
     genes = {'gene':[], 'chrom':[], 'win':[]}
     genes['gene'] = gene_win_df['gene'].to_list()
     genes['chrom'] = gene_win_df['chrom'].to_list()

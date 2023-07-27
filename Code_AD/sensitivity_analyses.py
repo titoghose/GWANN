@@ -389,7 +389,8 @@ def sensitivity_6():
         #                               chrom=str(1), glist=glist, split=True, 
         #                               num_procs=103)
 
-    for label in ['MATERNAL_MARIONI']:
+    glist = ['APOE', 'BIN1', 'CR1', 'CLU', 'PLCB4']
+    for label in ['PATERNAL_MARIONI']:
         with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
             sys_params = yaml.load(f, Loader=yaml.FullLoader)
             
@@ -399,13 +400,13 @@ def sensitivity_6():
                 exp_name = f'Sens6.1'
                 grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
                 
-                create_groups(
-                    label=label,
-                    param_folder=param_folder, 
-                    phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-                    grp_size=grp_size, oversample=oversample,
-                    random_seed=seed, grp_id_path=grp_id_path
-                )
+                # create_groups(
+                #     label=label,
+                #     param_folder=param_folder, 
+                #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+                #     grp_size=grp_size, oversample=oversample,
+                #     random_seed=seed, grp_id_path=grp_id_path
+                # )
 
                 sys_params['GROUP_IDS_PATH'] = grp_id_path
                 sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
@@ -421,9 +422,9 @@ def sensitivity_6():
                 # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
                 #                          device=gpu_list[0], exp_suffix=exp_name)
                 
-                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list,
-                #             glist=glist, grp_size=grp_size)
+                run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list,
+                            glist=glist, grp_size=grp_size, shap_plots=True)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 

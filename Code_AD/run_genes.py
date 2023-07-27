@@ -4,6 +4,7 @@ import os
 import sys
 from functools import partial
 from typing import Optional
+from matplotlib import pyplot as plt
 
 import numpy as np
 import pandas as pd
@@ -74,7 +75,8 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, glist:list=None, grp_size:int=10) -> None:
+                   gpu_list:list, glist:list=None, grp_size:int=10, 
+                   shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -156,6 +158,24 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     genes['win'] = gene_win_df['win'].to_list()
 
     exp.parallel_run(genes=genes)
+
+    if shap_plots:
+        os.makedirs(f'results_{exp_name}/shap', exist_ok=True)
+        summ_df = pd.read_csv(exp.summary_f)
+        summ_df['symbol'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
+        summ_df.sort_values(['symbol', 'Acc'], ascending=[True, False], 
+                                      inplace=True)
+        print(summ_df.head())
+        
+        summ_df.drop_duplicates(['symbol'], inplace=True)
+        summ_df = summ_df.loc[summ_df['symbol'].isin(glist)]
+        for _, r in summ_df.iterrows():
+            gdict = {'gene':r['symbol'], 'chrom':r['Chrom'], 
+                     'win':int(r['Gene'].split('_')[1])}
+            shap_fig = exp.calculate_shap(gene_dict=gdict, device=gpu_list[0])
+            shap_fig.savefig(f'results_{exp_name}/shap/{label}_{r["Gene"]}_shap.png', 
+                             dpi=100)
+            plt.close()
 
     e = datetime.datetime.now()
     print('\n\n', (e-s))

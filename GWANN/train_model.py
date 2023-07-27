@@ -21,7 +21,32 @@ import shap
 
 from GWANN.dataset_utils import PGEN2Pandas, load_data, load_win_data
 from GWANN.train_utils import create_train_plots, train
-from GWANN.models import Diff
+from GWANN.models import Diff, Identity
+
+class FullModel(torch.nn.Module):
+    """
+    """
+    def __init__(self, gene_model, cov_model):
+        super(FullModel, self).__init__()
+
+        self.gene_model = gene_model
+        self.cov_model = cov_model
+        self.cov_model.end_model.linears[-1] = Identity()
+        
+    def forward(self, x):
+        snps_enc = self.gene_model.snp_enc(torch.transpose(x[:, :, :self.gene_model.num_snps], 1, 2))
+        snps_pooled = torch.squeeze(self.gene_model.pool_ind(snps_enc), dim=-1)
+        self.att_out = self.gene_model.att_mask(snps_pooled)
+        self.att_out.requires_grad_(True)
+        features_pooled = self.gene_model.pool_features(
+            torch.unsqueeze(self.att_out, dim=1))
+        snps_out = self.gene_model.snps_model(torch.squeeze(features_pooled, dim=1))
+        
+        cov_out = self.cov_model(x[:, :, self.gene_model.num_snps:])
+        data_vec = torch.cat((snps_out, cov_out), dim=-1)
+        raw_out = self.gene_model.end_model(data_vec)
+        
+        return raw_out
 
 class Experiment:
     def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
@@ -391,6 +416,8 @@ class Experiment:
     def calculate_shap(self, gene_dict:dict, device:str) -> Figure:
         
         gene = gene_dict['gene']
+        if 'win' in gene_dict:
+            gene = f'{gene}_{gene_dict["win"]}'
         data_tuple = self.__gen_data__(gene_dict=gene_dict, 
                                        only_covs=self.only_covs)
         X, y, X_test, y_test, cw, data_cols, num_snps = data_tuple
@@ -398,13 +425,13 @@ class Experiment:
             assert num_snps == 0
             assert len(data_cols) == len(self.covs)
 
-        if not self.only_covs:
-            X = np.concatenate(
-                (X[:, :, :num_snps], self.cov_encodings['train']), 
-                axis=-1)
-            X_test = np.concatenate(
-                (X_test[:, :, :num_snps], self.cov_encodings['test']), 
-                axis=-1)
+        # if not self.only_covs:
+        #     X = np.concatenate(
+        #         (X[:, :, :num_snps], self.cov_encodings['train']), 
+        #         axis=-1)
+        #     X_test = np.concatenate(
+        #         (X_test[:, :, :num_snps], self.cov_encodings['test']), 
+        #         axis=-1)
 
         print(f'{gene:20} Group train data: {X.shape}')
         print(f'{gene:20} Group test data: {X_test.shape}')
@@ -415,13 +442,16 @@ class Experiment:
         model_path = f'{gene_dir}/{model_name}.pt'
 
         model = torch.load(model_path, map_location=torch.device(device))
+        if not self.only_covs:
+            cov_model_path = f'/home/upamanyu/GWANN/Code_AD/NN_Logs/{self.prefix.replace("Chr", "Cov")}_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+            cov_model = torch.load(cov_model_path, map_location=torch.device(device))
+            model = FullModel(model, cov_model).to(device)
+        
         model = torch.nn.Sequential(
             model,
             Diff()
         ).to(device)
-        # cov_model = torch.load(self.cov_model_path, map_location=torch.device(device))
-        # model = FullModel(gene_model, cov_model).to(device)
-        
+
         X = torch.from_numpy(X).float().to(device)
         y = torch.from_numpy(y).long().to(device)
         X_test = torch.from_numpy(X_test).float().to(device)

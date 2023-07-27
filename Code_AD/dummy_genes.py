@@ -57,22 +57,22 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
 
     lock = mp.Manager().Lock()
     
-    cnt = 0
-    dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
-        for dos_freq in dosage_freqs:
-            file_prefix = dummy_plink(samples=ids, 
-                    num_snps=num_snps, dosage_freq=dos_freq, 
-                    out_folder=f'{data_base_folder}/dummy_pgen')
-            pg2pd = PGEN2Pandas(prefix=file_prefix)
-            pg2pd.psam['IID'] = ids
-            pg2pd.psam['FID'] = ids
+    # cnt = 0
+    # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
+    # for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
+    #     for dos_freq in dosage_freqs:
+    #         file_prefix = dummy_plink(samples=ids, 
+    #                 num_snps=num_snps, dosage_freq=dos_freq, 
+    #                 out_folder=f'{data_base_folder}/dummy_pgen')
+    #         pg2pd = PGEN2Pandas(prefix=file_prefix)
+    #         pg2pd.psam['IID'] = ids
+    #         pg2pd.psam['FID'] = ids
             
-            load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
-                    chrom='1', start=0, end=100, buffer=2500, label=label, 
-                    sys_params=sys_params, covs=covs, 
-                    preprocess=False, lock=lock)
-            cnt += 1
+    #         load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
+    #                 chrom='1', start=0, end=100, buffer=2500, label=label, 
+    #                 sys_params=sys_params, covs=covs, 
+    #                 preprocess=False, lock=lock)
+    #         cnt += 1
 
     shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
 

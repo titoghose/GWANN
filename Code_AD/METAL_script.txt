@@ -4,27 +4,27 @@
 
 # Weight for MatAD and PatAD set to number of testing set samples
 SCHEME SAMPLESIZE
-OVERLAP OFF
+OVERLAP ON
 
 # MatAD
 MARKER   Gene
-DEFAULT  7841
+DEFAULT  124330
 ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWANN/Code_AD/results/MATERNAL_MARIONI_METAL_wins_inp.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results_Sens6.1/MATERNAL_MARIONI_Sens6.1_METAL_wins_inp.csv
 
 # PatAD
 MARKER   Gene
-DEFAULT  3805
+DEFAULT  45652
 ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWANN/Code_AD/results/PATERNAL_MARIONI_METAL_wins_inp.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results_Sens6.1/PATERNAL_MARIONI_Sens6.1_METAL_wins_inp.csv
 
-OUTFILE  /home/upamanyu/GWANN/Code_AD/results/Parental_AD_wins_METAL .TBL
+OUTFILE  /home/upamanyu/GWANN/Code_AD/results_Sens6.1/Parental_AD_wins_METAL .TBL
 
 # Execute meta-analysis
 ANALYZE
@@ -37,27 +37,27 @@ CLEAR
 
 # Weight for MatAD and PatAD set to number of testing set samples
 SCHEME SAMPLESIZE
-OVERLAP OFF
+OVERLAP ON
 
 # MatAD
 MARKER   Gene
-DEFAULT  7841
+DEFAULT  124330
 ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWANN/Code_AD/results/MATERNAL_MARIONI_METAL_genes_inp.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results_Sens6.1/MATERNAL_MARIONI_Sens6.1_METAL_genes_inp.csv
 
 # PatAD
 MARKER   Gene
-DEFAULT  3805
+DEFAULT  45652
 ALLELE   A1 A2
 EFFECT   Acc
 PVAL     P
 
-PROCESS /home/upamanyu/GWANN/Code_AD/results/PATERNAL_MARIONI_METAL_genes_inp.csv
+PROCESS /home/upamanyu/GWANN/Code_AD/results_Sens6.1/PATERNAL_MARIONI_Sens6.1_METAL_genes_inp.csv
 
-OUTFILE  /home/upamanyu/GWANN/Code_AD/results/Parental_AD_genes_METAL .TBL
+OUTFILE  /home/upamanyu/GWANN/Code_AD/results_Sens6.1/Parental_AD_genes_METAL .TBL
 
 # Execute meta-analysis
 ANALYZE

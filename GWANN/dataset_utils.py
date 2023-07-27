@@ -672,7 +672,7 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         data_mat.loc[data_mat[edu_col].isna(), edu_col+'_missing'] = 1
         data_mat.loc[~data_mat[edu_col].isna(), edu_col+'_missing'] = 0
     
-    # print(data_mat.loc[data_mat['f.6138_ISCED'].isna()])
+    data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
@@ -777,6 +777,7 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     data_mat = pd.read_csv(data_path, index_col=0, comment='#')
     data_mat.index = data_mat.index.astype(str)
     data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
+    data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
@@ -834,7 +835,8 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
         6 - Number of SNPs in the data arrays (int)
     """
     data_cols = [c for c in train_df.columns if c!=label]
-    num_snps = len(data_cols) - len(covs)
+    snp_cols = [c for c in data_cols if c not in covs]
+    num_snps = len(snp_cols)
     
     # Scale each feature between 0 and 1
     mm_scaler = MinMaxScaler(feature_range=(0, 1))
@@ -1148,27 +1150,14 @@ def split(genes:list, covs:list, label:str, read_base:str,
     for gene_file in genes:
         df_path = f'{read_base}/{gene_file}'
         df = pd.read_csv(df_path, index_col=0, comment='#')
-        data_cols = df.columns.to_list()
-        num_snps = len(data_cols) - len(covs) - 1
+        data_cols = [c for c in df.columns.to_list() if c != label]
+        snp_cols = [c for c in data_cols if c not in covs]
         snp_win = 50
-        num_win = int(np.ceil(num_snps/snp_win))
-        remaining_snps = num_snps
-        # sample_win = np.random.choice(np.arange(0, num_win), 1)
-        # sample_win = gsplit[gname]
-        for win in range(num_win):
-            sind = win * snp_win
-            eind = sind+remaining_snps if remaining_snps < snp_win else (win+1)*snp_win
-            nsnps = eind-sind
-            
+        split_snp_cols = np.array_split(snp_cols, np.arange(snp_win, len(snp_cols), snp_win))
+        
+        for win, split_snps in enumerate(split_snp_cols):
             split_f = gene_file.split('_')
             split_f[1] = f'{split_f[1]}_{win}'
             f_win = f'{write_base}/{"_".join(split_f)}'
-
-            cols_win = data_cols[sind+1:eind+1] + covs + [label,]
-            df_win = df[cols_win].copy()
-            
-            # if win == sample_win:
-            #     df_win.to_csv(f_win, index=False)
-            df_win.to_csv(f_win)
-
-            remaining_snps = remaining_snps - nsnps
+            win_cols = list(split_snps) + covs + [label,]
+            df[win_cols].to_csv(f_win)

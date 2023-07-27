@@ -129,7 +129,7 @@ def gen_cov_encodings(label:str, param_folder:str,
                  test_enc=test_enc.numpy())
 
 def model_pipeline(label:str, param_folder:str, gpu_list:list, 
-                   exp_suffix:str='', grp_size:int=10, 
+                   exp_name:str='', grp_size:int=10, 
                    shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
@@ -150,7 +150,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
     df = genes_df.loc[gene_list]
     df = df.astype({'chrom':str})
 
-    exp_name = f'{label}_Cov{exp_suffix}'
+    exp_name = f'{label}_Cov{exp_name}'
     # Setting the model for the Experiment
     model = GroupAttention
     model_dict = {
@@ -186,9 +186,9 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
     if shap_plots:
         gdict = {k:genes[k][0] for k in genes.keys()}
         shap_fig = exp.calculate_shap(gene_dict=gdict, device=gpu_list[0])
-        if not os.path.exists(f'results_{exp_suffix}'):
-            os.mkdir(f'results_{exp_suffix}')
-        shap_fig.savefig(f'results_{exp_suffix}/{label}_cov_model_shap.png', dpi=100)
+        if not os.path.exists(f'results_{exp_name}'):
+            os.mkdir(f'results_{exp_name}')
+        shap_fig.savefig(f'results_{exp_name}/{label}_cov_model_shap.png', dpi=100)
         plt.close()
 
     e = datetime.datetime.now()

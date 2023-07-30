@@ -18,6 +18,7 @@ import pandas as pd
 import torch.nn as nn
 import yaml
 import shap
+import time
 
 from GWANN.dataset_utils import PGEN2Pandas, load_data, load_win_data
 from GWANN.train_utils import create_train_plots, train
@@ -241,24 +242,36 @@ class Experiment:
         func_args = []
         num_genes = len(genes['gene'])
         cnt = 0
+        shared_gpu_stack = m.list(self.GPU_LIST)
+        # for gene_num, gene in enumerate(genes['gene']):
+        #     gdict = {k:genes[k][gene_num] for k in genes.keys()}
+        #     if cnt < len(self.GPU_LIST):
+        #         print(f'QUEUEING {gene} FOR TRAINING {cnt}')
+        #         device = self.GPU_LIST[cnt]
+        #         func_args.append((shared_gpu_idx, gdict, device, lock, True))
+        #         cnt+=1
+            
+        #     if cnt == len(self.GPU_LIST) or gene_num == num_genes-1:
+                
+        #         with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
+        #             pool.starmap(self.train_gene, func_args)
+        #             pool.close()
+        #             pool.join()
+        #         cnt = 0 
+        #         func_args = []                
+
         for gene_num, gene in enumerate(genes['gene']):
             gdict = {k:genes[k][gene_num] for k in genes.keys()}
-            if cnt < len(self.GPU_LIST):
-                print(f'QUEUEING {gene} FOR TRAINING {cnt}')
-                device = self.GPU_LIST[cnt]
-                func_args.append((gdict, device, lock, True))
-                cnt+=1
+            # print(f'QUEUEING {gene} FOR TRAINING {cnt}')
+            device = self.GPU_LIST[cnt]
+            func_args.append((shared_gpu_stack, gdict, device, lock, True))
             
-            if cnt == len(self.GPU_LIST) or gene_num == num_genes-1:
-                
-                with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
-                    pool.starmap(self.train_gene, func_args)
-                    pool.close()
-                    pool.join()
-                cnt = 0 
-                func_args = []                
-
-    def train_gene(self, gene_dict:dict, device:Union[str, int], 
+        with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
+            pool.starmap_async(self.train_gene, func_args, chunksize=1)
+            pool.close()
+            pool.join()
+        
+    def train_gene(self, shared_gpu_stack:list, gene_dict:dict, device:Union[str, int], 
                    lock:mp.Lock, log:bool=True) -> None:
         """Setup and run the NN training for a given gene. It also
         invokes the permutation test after training.
@@ -279,17 +292,20 @@ class Experiment:
             Controls if training metrics and model should be saved or
             not, by default True
         """
-        
-        optimiser = self.hyperparam_dict['optimiser']
-        lr = self.hyperparam_dict['lr']
-        batch = self.hyperparam_dict['batch']
-        epochs = self.hyperparam_dict['epochs']
+        with lock:
+            device = int(shared_gpu_stack.pop(0))
+
         gene = gene_dict['gene']
         chrom = gene_dict['chrom']
         if 'win' in gene_dict:
             gene = f'{gene}_{gene_dict["win"]}'
 
+        print(f'Running {gene} on gpu: {device}')
+
         try:
+            # print(f'Hello, {gene} is running on {device}')
+            # tensor = torch.from_numpy(np.ones((1000, 1000))).to(device)
+            # time.sleep(np.random.randint(1, 5))
             # Load the data
             data_tuple = self.__gen_data__(gene_dict=gene_dict, 
                                            only_covs=self.only_covs)
@@ -324,16 +340,17 @@ class Experiment:
         
             # Optimiser Parameters
             optim_dict = {}
-            optim_dict['LR'] = lr 
+            optim_dict['LR'] = self.hyperparam_dict['lr'] 
             optim_dict['damping'] = 1
             optim_dict['class_weights'] = cw
-            optim_dict['optim'] = optimiser
+            optim_dict['optim'] = self.hyperparam_dict['optimiser']
             optim_dict['use_scheduler'] = False
 
             # Training Parameters
             train_dict = {}
-            train_dict['batch_size'] = batch
-            train_dict['epochs'] = epochs
+            train_dict['batch_size'] = self.hyperparam_dict['batch']
+            train_dict['epochs'] = self.hyperparam_dict['epochs']
+            train_dict['early_stopping'] = self.hyperparam_dict['early_stopping']
 
             # Create all folders needed for saving training information
             if log:
@@ -345,7 +362,8 @@ class Experiment:
                 train_dict['log'] = None
 
             # If saved model exists, then skip retraining
-            if not os.path.isfile(f'{gene_dir}/{model_dict["model_name"]}_Ep{epochs-1}.pt'):
+            model_ckpt = f'{gene_dir}/{model_dict["model_name"]}.pt'
+            if not os.path.isfile(model_ckpt):
                 
                 with open(self.TRAIN_FILE, 'a') as f:
                     f.write(f'{gene:20} Training start\n')
@@ -368,11 +386,16 @@ class Experiment:
                 
             # Make training plots
             create_train_plots(gene_dir, ['acc'], suffix='acc', sweight=0.0)
+            create_train_plots(gene_dir, ['loss'], suffix='loss', sweight=0.0)
+
         except:
             with open(self.TRAIN_ERR_FILE, 'a') as errf:
                 errf.write(gene + '\n')
                 errf.write('='*20 + '\n')
                 errf.write(traceback.format_exc() + '\n\n')
+        finally:
+            with lock:
+                shared_gpu_stack.append(device)
 
     def __write_gene_summary_row__(self, gene:str, chrom:str, num_snps:int, epoch:int, 
                                    acc:float, loss:float, time_taken:str, lock:mp.Lock) -> None:
@@ -447,10 +470,10 @@ class Experiment:
             cov_model = torch.load(cov_model_path, map_location=torch.device(device))
             model = FullModel(model, cov_model).to(device)
         
-        model = torch.nn.Sequential(
-            model,
-            Diff()
-        ).to(device)
+        # model = torch.nn.Sequential(
+        #     model,
+        #     Diff()
+        # ).to(device)
 
         X = torch.from_numpy(X).float().to(device)
         y = torch.from_numpy(y).long().to(device)
@@ -459,7 +482,7 @@ class Experiment:
 
         data = X_test[torch.randperm(len(X_test))[:1000]]
         e = shap.DeepExplainer(model, X[torch.randperm(len(X))[:1000]])
-        shap_vals = e.shap_values(data)
+        shap_vals = e.shap_values(data)[0]
         shap_vals = np.reshape(shap_vals, (shap_vals.shape[0]*shap_vals.shape[1], -1))
 
         feature_names = data_cols

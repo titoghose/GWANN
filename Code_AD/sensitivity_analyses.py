@@ -373,7 +373,8 @@ def sensitivity_6():
     gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
     glist = gdf.index.to_list()
     
-    gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7], 3))
+    # gpu_list = list(np.repeat([0, 1, 2, 3, 4, 5, 6, 7], 3))
+    gpu_list = list(np.tile([5, 6, 7, 8, 9], 4))
 
     # Ceate data
     # for label in ['MATERNAL_MARIONI']:
@@ -389,8 +390,19 @@ def sensitivity_6():
         #                               chrom=str(1), glist=glist, split=True, 
         #                               num_procs=103)
 
-    glist = ['APOE', 'BIN1', 'CR1', 'CLU', 'PLCB4']
-    for label in ['PATERNAL_MARIONI']:
+    # glist = [
+    #     {'gene':'APOE', 'win':0, 'chrom':'19'},
+    #     {'gene':'NDUFS2', 'win':0, 'chrom':'1'},
+    #     {'gene':'CLU', 'win':0, 'chrom':'8'},
+    #     {'gene':'BIN1', 'win':5, 'chrom':'2'},
+    #     {'gene':'CR1', 'win':2, 'chrom':'1'},
+    #     {'gene':'ZCWPW1', 'win':0, 'chrom':'7'},
+    #     {'gene':'SDHC', 'win':3, 'chrom':'1'},
+    #     {'gene':'PLCB4', 'win':2, 'chrom':'20'},
+    # ]
+    # glist = glist[-1:]
+
+    for label in ['PATERNAL_MARIONI', 'MATERNAL_MARIONI']:
         with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
             sys_params = yaml.load(f, Loader=yaml.FullLoader)
             
@@ -400,13 +412,13 @@ def sensitivity_6():
                 exp_name = f'Sens6.1'
                 grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
                 
-                # create_groups(
-                #     label=label,
-                #     param_folder=param_folder, 
-                #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-                #     grp_size=grp_size, oversample=oversample,
-                #     random_seed=seed, grp_id_path=grp_id_path
-                # )
+                create_groups(
+                    label=label,
+                    param_folder=param_folder, 
+                    phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+                    grp_size=grp_size, oversample=oversample,
+                    random_seed=seed, grp_id_path=grp_id_path
+                )
 
                 sys_params['GROUP_IDS_PATH'] = grp_id_path
                 sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
@@ -415,24 +427,22 @@ def sensitivity_6():
                 with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
                     yaml.dump(sys_params, f)
                     
-                # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
-                # cov_model.model_pipeline(label=label, param_folder=param_folder,
-                #                          gpu_list=gpu_list[:2], exp_suffix=exp_name, 
-                #                          grp_size=grp_size, shap_plots=False)
-                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                #                          device=gpu_list[0], exp_suffix=exp_name)
+                cov_model.create_cov_only_data(label=label, param_folder=param_folder)
+                cov_model.model_pipeline(label=label, param_folder=param_folder,
+                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
+                                         grp_size=grp_size)
+                cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                                         device=gpu_list[0], exp_name=exp_name)
                 
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=True)
+                            glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
-                dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
-                            param_folder=param_folder, gpu_list=gpu_list, 
-                            grp_size=grp_size)
-        
-        break
-
+                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list, 
+                #             grp_size=grp_size)
+        # break
 
 if __name__ == '__main__':
     # chroms = sys.argv[1].split(',')

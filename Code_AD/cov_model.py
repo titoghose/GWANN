@@ -59,7 +59,7 @@ def create_cov_only_data(label:str, param_folder:str) -> None:
         preprocess=True)
 
 def gen_cov_encodings(label:str, param_folder:str, 
-                      device:Union[int, str]=0, exp_suffix:str='') -> None:
+                      device:Union[int, str]=0, exp_name:str='') -> None:
     """Generate and save covariate encodings from the penultimate layer 
     of the covariate model. It will always look for a model trained for
     the BCR gene. BCR was selected randomly because the gene does not
@@ -79,13 +79,13 @@ def gen_cov_encodings(label:str, param_folder:str,
     with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
         covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
     
-    sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_suffix}_cov_encodings_{label}.npz'
+    sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
 
     if os.path.isfile(sys_params['COV_ENC_PATH']):
         print(f'Encodings file exists at: {sys_params["COV_ENC_PATH"]}')
         return
-
-    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_Cov{exp_suffix}_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+    
+    model_path=f'{sys_params["LOGS_BASE_FOLDER"]}/{label}_Cov{exp_name}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
     cov_model = torch.load(model_path, map_location=torch.device('cpu'))
     cov_model.end_model.linears[-1] = Identity()
     cov_model.to(device)
@@ -150,15 +150,15 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
     df = genes_df.loc[gene_list]
     df = df.astype({'chrom':str})
 
-    exp_name = f'{label}_Cov{exp_name}'
+    prefix = f'{label}_Cov{exp_name}'
     # Setting the model for the Experiment
     model = GroupAttention
     model_dict = {
         'grp_size':grp_size,
         'inp':0,
         'enc':8,
-        'h':[128, 64, 16],
-        'd':[0.3, 0.3, 0.3],
+        'h':[32, 16, 8],
+        'd':[0.5, 0.5, 0.5],
         'out':2,
         'activation':nn.ReLU,
         'att_model':AttentionMask1, 
@@ -168,9 +168,10 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
         'optimiser': 'adam',
         'lr': 1e-4,
         'batch': 256,
-        'epochs': 50,
+        'epochs': 250,
+        'early_stopping':30
     }
-    exp = Experiment(prefix=exp_name, label=label, params_base=param_folder, 
+    exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
             gpu_list=gpu_list, only_covs=True, grp_size=grp_size)
 

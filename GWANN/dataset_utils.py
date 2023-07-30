@@ -664,20 +664,13 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
                             left_index=True, right_index=True)
     
     data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
-
-    edu_col = 'f.6138'
-    if edu_col in covs:
-        data_mat.loc[data_mat[edu_col] == -7, edu_col] = np.nan
-        data_mat.loc[data_mat[edu_col] == -3, edu_col] = np.nan
-        data_mat.loc[data_mat[edu_col].isna(), edu_col+'_missing'] = 1
-        data_mat.loc[~data_mat[edu_col].isna(), edu_col+'_missing'] = 0
     
     data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
 
-    assert not np.any(pd.isna(data_mat[[c for c in data_mat.columns if c!=edu_col]])), \
+    assert not np.any(pd.isna(data_mat)), \
             f'[{gene}]: Dataframe contains NaN values'
     
     if only_covs:
@@ -697,7 +690,9 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
                                     label=label, covs=covs, sys_params=sys_params)    
         num_snps = data_tuple[-1]
     else:
-        num_snps = train_df.shape[-1] - len(covs) - 1
+        data_cols = [c for c in train_df.columns if c!=label]
+        snp_cols = [c for c in data_cols if c not in covs]
+        num_snps = len(snp_cols)
 
     if log_creation and save_data:
         try:
@@ -779,6 +774,9 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
     data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
+    assert not np.any(data_mat.columns.duplicated()), \
+        f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
+
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
     
@@ -789,7 +787,7 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     if only_covs:
         train_df = train_df[covs+[label,]]
         test_df = test_df[covs+[label,]]
-        
+    
     assert not np.any(pd.isna(train_df)), \
             f'[{gene}]: Train dataframe contains NaN values'
     assert not np.any(pd.isna(test_df)), \
@@ -857,8 +855,8 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     # test_df.iloc[:, :num_snps] = scaled_test_df[:, :num_snps]
     
     # Fill missing values for f.6138
-    train_df.fillna(-1, inplace=True)
-    test_df.fillna(-1, inplace=True)
+    # train_df.fillna(-1, inplace=True)
+    # test_df.fillna(-1, inplace=True)
 
     # Convert data into grouped samples
     grps = np.load(f'{sys_params["GROUP_IDS_PATH"]}')

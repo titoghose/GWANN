@@ -3,7 +3,7 @@ import multiprocessing as mp
 import os
 import sys
 from functools import partial
-from typing import Optional
+from typing import Optional, Union
 from matplotlib import pyplot as plt
 
 import numpy as np
@@ -95,47 +95,25 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
     
-    gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
-    gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
-    
-    if glist is not None:
-        paths = []
-        for gwp in gene_win_paths:
-            if gwp.split('_')[1] in glist:
-                paths.append(gwp)
-        gene_win_paths = paths
-    
-    gene_win_paths = list(set(gene_win_paths))
-    gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
-    gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
-    gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
-    gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
-    gene_win_df['win'] = [int(p.split('_')[2]) for p in gene_win_paths]
-    gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
-    gene_win_df.sort_values(['gene', 'win', 'win_count'], 
-                            ascending=[True, True, False], inplace=True)
-    gene_win_df.drop_duplicates(['gene', 'win'], inplace=True)
-    
-    print(f'Number of gene win data files found: {gene_win_df.shape[0]}')
-
     # Setting the model for the Experiment
     model = GWANNet5
     model_params = {
         'grp_size':grp_size,
         'inp':0,
         'enc':8,
-        'h':[128, 64],
-        'd':[0.3, 0.3],
-        'out':16,
+        'h':[32, 16],
+        'd':[0.5, 0.5],
+        'out':8,
         'activation':nn.ReLU,
         'att_model':AttentionMask1, 
         'att_activ':nn.Sigmoid
     }
     hp_dict = {
         'optimiser': 'adam',
-        'lr': 1e-4,
+        'lr': 5e-3,
         'batch': 256,
         'epochs': 250,
+        'early_stopping':20
     }
     prefix = label + '_Chr' + exp_name
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
@@ -143,39 +121,56 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
                      hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
                      grp_size=grp_size)
     
-    # Remove genes that have already completed
-    if os.path.exists(exp.summary_f):
-        done_genes = pd.read_csv(exp.summary_f) 
-        done_genes = done_genes['Gene'].apply(lambda x: x.split('_')[0]).to_list()
-        done_genes = set(done_genes)
-        print(len(done_genes))
-        gene_win_df = gene_win_df.loc[~gene_win_df['gene'].isin(done_genes)]
-    print(f'Number of genes left to train: {gene_win_df.shape[0]}')
-    
-    genes = {'gene':[], 'chrom':[], 'win':[]}
-    genes['gene'] = gene_win_df['gene'].to_list()
-    genes['chrom'] = gene_win_df['chrom'].to_list()
-    genes['win'] = gene_win_df['win'].to_list()
+    if not shap_plots:
+        gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
+        gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
+        
+        if glist is not None:
+            paths = []
+            for gwp in gene_win_paths:
+                if gwp.split('_')[1] in glist:
+                    paths.append(gwp)
+            gene_win_paths = paths
+        
+        gene_win_paths = list(set(gene_win_paths))
+        gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
+        gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
+        gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
+        gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
+        gene_win_df['win'] = [int(p.split('_')[2]) for p in gene_win_paths]
+        gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
+        gene_win_df.sort_values(['gene', 'win', 'win_count'], 
+                                ascending=[True, True, False], inplace=True)
+        gene_win_df.drop_duplicates(['gene', 'win'], inplace=True)
+        
+        print(f'Number of gene win data files found: {gene_win_df.shape[0]}')
 
-    exp.parallel_run(genes=genes)
+        # Remove genes that have already completed
+        if os.path.exists(exp.summary_f):
+            done_genes_df = pd.read_csv(exp.summary_f) 
+            print(done_genes_df.shape)
+            gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
+            gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
+            
+        print(f'Number of genes left to train: {gene_win_df.shape[0]}')
+        
+        genes = {'gene':[], 'chrom':[], 'win':[]}
+        genes['gene'] = gene_win_df['gene'].to_list()
+        genes['chrom'] = gene_win_df['chrom'].to_list()
+        genes['win'] = gene_win_df['win'].to_list()
+        
+        exp.parallel_run(genes=genes)
 
     if shap_plots:
         os.makedirs(f'results_{exp_name}/shap', exist_ok=True)
-        summ_df = pd.read_csv(exp.summary_f)
-        summ_df['symbol'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
-        summ_df.sort_values(['symbol', 'Acc'], ascending=[True, False], 
-                                      inplace=True)
-        print(summ_df.head())
-        
-        summ_df.drop_duplicates(['symbol'], inplace=True)
-        summ_df = summ_df.loc[summ_df['symbol'].isin(glist)]
-        for _, r in summ_df.iterrows():
-            gdict = {'gene':r['symbol'], 'chrom':r['Chrom'], 
-                     'win':int(r['Gene'].split('_')[1])}
+        for gdict in glist:
+            fig_name = f'results_{exp_name}/shap/{label}_{gdict["gene"]}_shap.png'
+            if os.path.isfile(fig_name):
+                continue
             shap_fig = exp.calculate_shap(gene_dict=gdict, device=gpu_list[0])
-            shap_fig.savefig(f'results_{exp_name}/shap/{label}_{r["Gene"]}_shap.png', 
-                             dpi=100)
+            shap_fig.savefig(fig_name, dpi=100)
             plt.close()
+        
 
     e = datetime.datetime.now()
     print('\n\n', (e-s))

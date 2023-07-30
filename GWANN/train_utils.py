@@ -1,6 +1,7 @@
 
 # coding: utf-8
 import os
+import gc
 import csv
 import ast
 from typing import Union
@@ -36,6 +37,9 @@ from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 from statsmodels.stats.proportion import proportion_confint
 
 import torch
+torch.manual_seed(0)
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -43,51 +47,39 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # Load paramaters
 class EarlyStopping:
-    """Early stops the training if validation loss doesn't improve after a given patience."""
-    def __init__(self, patience=7, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
-        """
-        Args:
-            patience (int): How long to wait after last time validation loss improved.
-                            Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement. 
-                            Default: False
-            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
-                            Default: 0
-            path (str): Path for the checkpoint to be saved to.
-                            Default: 'checkpoint.pt'
-            trace_func (function): trace print function.
-                            Default: print            
-        """
+    def __init__(self, patience=10, verbose=False, delta=0, save_path='checkpoint.pt', 
+                 inc=True):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
         self.best_score = None
+        self.best_epoch = None
         self.early_stop = False
         self.delta = delta
-        self.path = path
-        self.trace_func = trace_func
+        self.save_path = save_path
+        self.inc = 1 if inc else -1
 
-    def __call__(self, metric, model, inc=True):
+    def __call__(self, metric, model, epoch):
         
-        score = metric if inc else -metric
+        score = metric*self.inc
         
         if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(model)
+            self.best_score = epoch
+            self.best_epoch = score
+            self.__save_checkpoint__(model)
+        
         elif score < self.best_score + self.delta:
             self.counter += 1
-            # self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-            if self.counter >= self.patience:
-                self.early_stop = True
+            self.early_stop = self.counter >= self.patience
+        
         else:
             self.best_score = score
-            self.save_checkpoint(model)
+            self.best_epoch = epoch
+            self.__save_checkpoint__(model)
             self.counter = 0
 
-    def save_checkpoint(self, model):
-        # if self.verbose:
-        #     self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
-        torch.save(model, self.path)
+    def __save_checkpoint__(self, model):
+        torch.save(model, self.save_path)
 
 class MidpointNormalize(colors.Normalize):
     """
@@ -169,7 +161,8 @@ class FastTensorDataLoader:
         return self.n_batches
 
 class SKFBatchSampler(Sampler):
-    def __init__(self, dataset, batch_size, shuffle):
+
+    def __init__(self, dataset, batch_size, shuffle, random_seed):
         self.labels = dataset.labels
         self.num_labels = len(dataset.labels)
         self.batch_size = batch_size
@@ -178,7 +171,7 @@ class SKFBatchSampler(Sampler):
             self.num_batches += 1
         
         self.splitter = StratifiedKFold(n_splits=self.num_batches, 
-                                        shuffle=shuffle)
+                                        shuffle=shuffle, random_state=random_seed)
 
     def __iter__(self):
         for _, batch_ind in self.splitter.split(self.labels, self.labels):
@@ -982,7 +975,6 @@ def weight_init_linear(m):
         Model to initialise.
 
     """
-    torch.manual_seed(0)
     if isinstance(m, nn.Conv1d):
         nn.init.kaiming_uniform_(m.weight.data, nonlinearity='relu')
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight.data)
@@ -1071,10 +1063,10 @@ def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor,
     #   -1     where prediction is 0 and truth is 1 (False Negative)
     confusion_vector = (y_pred*2) - y_true
     
-    tn = torch.sum(confusion_vector == 0).item()*class_weights[1]
-    fp = torch.sum(confusion_vector == 2).item()*class_weights[1]
-    fn = torch.sum(confusion_vector == -1).item()*class_weights[0]
-    tp = torch.sum(confusion_vector == 1).item()*class_weights[0]
+    tn = torch.sum(confusion_vector == 0).item()#*class_weights[1]
+    fp = torch.sum(confusion_vector == 2).item()#*class_weights[1]
+    fn = torch.sum(confusion_vector == -1).item()#*class_weights[0]
+    tp = torch.sum(confusion_vector == 1).item()#*class_weights[0]
     
     return (tn, fp, fn, tp)
 
@@ -1105,7 +1097,10 @@ def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> tuple:
     neg_obs = tn+fp
     acc, prec, rec, mcc, f1 = np.nan, np.nan, np.nan, np.nan, np.nan
     if tp or tn or fp or fn:
-        acc = (tp + tn)/(tn+fp+fn+tp)
+        # acc = (tp + tn)/(tn+fp+fn+tp)
+        sens = tp/(fn+tp)
+        spec = tn/(tn+fp)
+        acc = (sens+spec)/2
     if pos_obs:
         rec = tp/pos_obs
     if pos_pred:
@@ -1159,6 +1154,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     optimiser = training_dict['optimiser']
     batch_size = training_dict['batch_size']
     epochs = training_dict['epochs']
+    early_stopping_thresh = training_dict['early_stopping']
     scheduler = training_dict['scheduler']
     device = training_dict['device']
     
@@ -1169,8 +1165,13 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         Xval, yval = X[val_ind], y[val_ind]
 
     train_dataset = GWASDataset(X[train_ind], y[train_ind])
-    train_sampler = SKFBatchSampler(train_dataset, batch_size=batch_size, shuffle=True)
-    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler)
+    train_sampler = SKFBatchSampler(train_dataset, batch_size=batch_size, 
+                                    shuffle=True, 
+                                    random_seed=0)
+    train_dataloader = DataLoader(dataset=train_dataset, 
+                                  batch_sampler=train_sampler)
+    # train_dataloader = DataLoader(dataset=train_dataset, 
+    #                               shuffle=True, batch_size=batch_size)
     
     val_dataset = GWASDataset(Xval, yval)
 
@@ -1184,12 +1185,13 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     # Send model to device and initialise weights and metric tensors
     model.to(device)
     loss_fn = loss_fn.to(device)
-    best_ep = 0
-    best_val = torch.tensor(0).float()
     agg_conf_mat = torch.zeros((epochs, 2, 4))
     avg_acc = torch.zeros((epochs, 2))
     avg_loss = torch.zeros((epochs, 2))
     
+    early_stopping = EarlyStopping(patience=early_stopping_thresh, 
+                                   save_path=f'{log}/{model_name}.pt')
+
     current_lr = optimiser.state_dict()['param_groups'][0]['lr']
     best_state = model.state_dict()
     for epoch in tqdm.tqdm(range(epochs), desc='Epoch'):
@@ -1229,23 +1231,32 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             if new_lr < current_lr:
                 model.load_state_dict(best_state)
 
-        if log is not None:
-            if best_val < avg_acc[epoch][1]:
-                best_val = avg_acc[epoch][1]
-                best_ep = epoch
-                best_state = model.state_dict()
-                torch.save(model, '{}/{}.pt'.format(log, model_name))
+        early_stopping(avg_acc[epoch][1], model, epoch)
+        if early_stopping.early_stop:
+            best_state = model.state_dict()
+            break
+
+        # if log is not None:
+        #     if best_val < avg_acc[epoch][1]:
+        #         best_val = avg_acc[epoch][1]
+        #         best_ep = epoch
+        #         best_state = model.state_dict()
+        #         torch.save(model, '{}/{}.pt'.format(log, model_name))
                 # print("[{:4d}] Train Acc: {:.3f} Val Acc: {:.3f}, \
                 #             Train Loss: {:.3f} Val Loss:{:.3f}".format(
                 #                 epoch, avg_acc[epoch][0], avg_acc[epoch][1], 
                 #                 avg_loss[epoch][0], avg_loss[epoch][1]))
             
-            if epoch%200 == 0 or (epoch == epochs-1):
-                torch.save(model, '{}/{}_Ep{}.pt'.format(log, model_name, epoch))
+            # if epoch%200 == 0 or (epoch == epochs-1):
+            #     torch.save(model, '{}/{}_Ep{}.pt'.format(log, model_name, epoch))
     
-    print('\n\n', model_name, ' BEST EPOCH ', best_ep, '\n\n')
+
+    print('\n\n', model_name, ' BEST EPOCH ', early_stopping.best_epoch, '\n\n')
     
-    return best_ep, agg_conf_mat, avg_loss
+    agg_conf_mat = agg_conf_mat[:min(epoch+1, epochs)].detach().cpu().numpy()
+    avg_loss = avg_loss[:min(epoch+1, epochs)].detach().cpu().numpy()
+
+    return early_stopping.best_epoch, agg_conf_mat, avg_loss
 
 def training_stuff(model:nn.Module, damping:float, class_weights:np.ndarray, 
                    lr:float, opt:str) -> tuple:
@@ -1346,6 +1357,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     batch_size = train_dict['batch_size']
     epochs = train_dict['epochs']
     log = train_dict['log']
+    early_stopping = train_dict['early_stopping']
 
     # Convert numpy data into torch tensors
     X, y = torch.tensor(X).float(), torch.tensor(y).long()
@@ -1377,6 +1389,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
         'scheduler': scheduler,
         'batch_size': batch_size,
         'epochs':epochs,
+        'early_stopping':early_stopping,
         'class_weights':class_weights,
         'device': device
     }
@@ -1445,7 +1458,7 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
             raw_out = model.forward(X_batch)
             y_pred = torch.cat(
                 (y_pred, pred_from_raw(raw_out.detach().clone())))
-            batch_loss = loss_fn(raw_out, y_batch).detach().item()
+            batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
             loss = running_avg(loss, batch_loss, bnum+1)
 
         # if len(y_tensor) != len(y_pred):
@@ -1499,7 +1512,7 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
             Best test set accuracy 
             Best train set accuracy
     """
-    
+    torch.cuda.set_device(device)
     best_ep, conf_mat, loss = start_training(
         X=X, y=y, X_test=X_test, y_test=y_test, model_dict=model_dict, 
         optim_dict=optim_dict, train_dict=train_dict, device=device)
@@ -1509,8 +1522,11 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     
     best_test_cm = conf_mat[best_ep, 1]
     metrics = metrics_from_conf_mat(best_test_cm)
-    best_test_acc = metrics[3].item()
-    best_test_loss = loss[best_ep, 1].item()
+    best_test_acc = metrics[3]
+    best_test_loss = loss[best_ep, 1]
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
     return best_ep, best_test_acc, best_test_loss
 

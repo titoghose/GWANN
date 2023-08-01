@@ -366,7 +366,8 @@ def sensitivity_6():
     with open('params/gene_subsets.yaml', 'r') as f:
         gdict = yaml.load(f, yaml.FullLoader)
     # glist = gdict['Marioni_meta'] + gdict['GWANN_v1_Meta']
-    glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
+    # glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
+    glist = gdict['GWANN_v1_Meta']
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
     gdf.set_index('symbol', inplace=True, drop=False)
     # gdf = gdf.loc[glist]
@@ -390,19 +391,17 @@ def sensitivity_6():
         #                               chrom=str(1), glist=glist, split=True, 
         #                               num_procs=103)
 
-    # glist = [
-    #     {'gene':'APOE', 'win':0, 'chrom':'19'},
-    #     {'gene':'NDUFS2', 'win':0, 'chrom':'1'},
-    #     {'gene':'CLU', 'win':0, 'chrom':'8'},
-    #     {'gene':'BIN1', 'win':5, 'chrom':'2'},
-    #     {'gene':'CR1', 'win':2, 'chrom':'1'},
-    #     {'gene':'ZCWPW1', 'win':0, 'chrom':'7'},
-    #     {'gene':'SDHC', 'win':3, 'chrom':'1'},
-    #     {'gene':'PLCB4', 'win':2, 'chrom':'20'},
-    # ]
+    glist = [
+        {'gene':'APOE', 'win':0, 'chrom':'19'},
+        {'gene':'NDUFS2', 'win':0, 'chrom':'1'},
+        {'gene':'PAX5', 'win':1, 'chrom':'9'},
+        {'gene':'PAX5', 'win':4, 'chrom':'9'},
+        # {'gene':'PAX5', 'win':6, 'chrom':'9'},
+        {'gene':'BIN1', 'win':5, 'chrom':'2'}
+    ]
     # glist = glist[-1:]
 
-    for label in ['PATERNAL_MARIONI', 'MATERNAL_MARIONI']:
+    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
         with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
             sys_params = yaml.load(f, Loader=yaml.FullLoader)
             
@@ -427,16 +426,16 @@ def sensitivity_6():
                 with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
                     yaml.dump(sys_params, f)
                     
-                cov_model.create_cov_only_data(label=label, param_folder=param_folder)
-                cov_model.model_pipeline(label=label, param_folder=param_folder,
-                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
-                                         grp_size=grp_size)
-                cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                                         device=gpu_list[0], exp_name=exp_name)
+                # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
+                # cov_model.model_pipeline(label=label, param_folder=param_folder,
+                #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
+                #                          grp_size=grp_size)
+                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+                #                          device=gpu_list[0], exp_name=exp_name)
                 
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=False)
+                            glist=glist, grp_size=grp_size, shap_plots=True)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 

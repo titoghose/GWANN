@@ -37,11 +37,8 @@ class FullModel(torch.nn.Module):
     def forward(self, x):
         snps_enc = self.gene_model.snp_enc(torch.transpose(x[:, :, :self.gene_model.num_snps], 1, 2))
         snps_pooled = torch.squeeze(self.gene_model.pool_ind(snps_enc), dim=-1)
-        self.att_out = self.gene_model.att_mask(snps_pooled)
-        self.att_out.requires_grad_(True)
-        features_pooled = self.gene_model.pool_features(
-            torch.unsqueeze(self.att_out, dim=1))
-        snps_out = self.gene_model.snps_model(torch.squeeze(features_pooled, dim=1))
+        att_out = self.gene_model.att_mask(snps_pooled)
+        snps_out = self.gene_model.snps_model(torch.squeeze(att_out, dim=1))
         
         cov_out = self.cov_model(x[:, :, self.gene_model.num_snps:])
         data_vec = torch.cat((snps_out, cov_out), dim=-1)
@@ -436,7 +433,36 @@ class Experiment:
         finally:
             lock.release()
 
-    def calculate_shap(self, gene_dict:dict, device:str) -> Figure:
+    # def parallel_shap(self, glist):
+    #     """Invoke training and permutation test for all genes passed to 
+    #     it. Each gene (or set of genes) is invoked parallely using
+    #     multiprocessing.Pool and trained using the corresponding set of
+    #     in the Experiment class' 'GPU_LIST' parameter.
+
+    #     Parameters
+    #     ----------
+    #     genes : dict
+    #         Dictionary containing all the genes. Structure:
+    #             {'chrom':list, 'names':list, 'start':list, 'end':list}
+    #     """
+        
+    #     m = mp.Manager()
+    #     lock = m.Lock()
+    #     func_args = []
+    #     cnt = 0
+    #     shared_gpu_stack = m.list(self.GPU_LIST)
+        
+    #     func_args = zip(
+    #         [shared_gpu_stack]*len(glist),
+    #         []
+
+    #     with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
+    #         pool.starmap_async(self.calculate_shap, 
+    #                            func_args, chunksize=1)
+    #         pool.close()
+    #         pool.join()
+
+    def calculate_shap(self, gene_dict:dict, device:int) -> Figure:
         
         gene = gene_dict['gene']
         if 'win' in gene_dict:
@@ -466,23 +492,35 @@ class Experiment:
 
         model = torch.load(model_path, map_location=torch.device(device))
         if not self.only_covs:
-            cov_model_path = f'/home/upamanyu/GWANN/Code_AD/NN_Logs/{self.prefix.replace("Chr", "Cov")}_GroupAttention_[128,64,16]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+            cov_model_path = f'/home/upamanyu/GWANN/Code_AD/NN_Logs/{self.prefix.replace("Chr", "Cov")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
             cov_model = torch.load(cov_model_path, map_location=torch.device(device))
             model = FullModel(model, cov_model).to(device)
         
-        # model = torch.nn.Sequential(
-        #     model,
-        #     Diff()
-        # ).to(device)
+        model = torch.nn.Sequential(
+            model,
+            Diff()
+        ).to(device)
 
         X = torch.from_numpy(X).float().to(device)
-        y = torch.from_numpy(y).long().to(device)
+        # cont_ind = np.where(y == 0)[0]
+        # cont_ind = cont_ind[np.random.permutation(len(cont_ind))[:500]]
+        # case_ind = np.where(y == 1)[0]
+        # case_ind = case_ind[np.random.permutation(len(case_ind))[:500]]
+        np.random.seed(0)
+        X = X[np.random.permutation(len(X))[:1000]]
+        
         X_test = torch.from_numpy(X_test).float().to(device)
-        y_test = torch.from_numpy(y_test).long().to(device)
+        # cont_ind = np.where(y_test == 0)[0]
+        # cont_ind = cont_ind[np.random.permutation(len(cont_ind))[:500]]
+        # case_ind = np.where(y_test == 1)[0]
+        # case_ind = case_ind[np.random.permutation(len(case_ind))[:500]]
+        np.random.seed(0)
+        X_test = X_test[np.random.permutation(len(X_test))[:1000]]
 
-        data = X_test[torch.randperm(len(X_test))[:1000]]
-        e = shap.DeepExplainer(model, X[torch.randperm(len(X))[:1000]])
-        shap_vals = e.shap_values(data)[0]
+        
+        data = X_test
+        e = shap.DeepExplainer(model, X)
+        shap_vals = e.shap_values(data)#[0]
         shap_vals = np.reshape(shap_vals, (shap_vals.shape[0]*shap_vals.shape[1], -1))
 
         feature_names = data_cols
@@ -494,5 +532,5 @@ class Experiment:
         sort_features = True
         shap.summary_plot(shap_vals, shap_plot_df, plot_size=(7, 5), 
                 max_display=20, sort=sort_features, alpha=0.5, 
-                color_bar_label='')
+                color_bar_label='', )
         return fig

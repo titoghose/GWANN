@@ -37,14 +37,14 @@ def calculate_p_values(label:str, exp_name:str):
     
     null_df = pd.read_csv(
         f'./NN_Logs/' + 
-        f'{label}_Chr{exp_name}Dummy_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
+        f'{label}_Chr{exp_name}Dummy_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
         f'{label}_Chr{exp_name}Dummy_2500bp_summary.csv')
     ep = EstimatePValue(null_accs=null_df['Acc'].values)
     ep.plot_null_dist(f'./results_{exp_name}/{label}_null_dist.png')
 
     summ_df = pd.read_csv(
         f'./NN_Logs/'+
-        f'{label}_Chr{exp_name}_GWANNet5_[128,64]_Dr_0.3_LR:0.0001_BS:256_Optim:adam/'+
+        f'{label}_Chr{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
         f'{label}_Chr{exp_name}_2500bp_summary.csv')
     summ_df['P'] = summ_df['Acc'].apply(lambda x: ep.estimate(x)).values
 
@@ -68,4 +68,5 @@ def calculate_p_values(label:str, exp_name:str):
 
 if __name__ == '__main__':
     calculate_p_values('MATERNAL_MARIONI', 'Sens6.1')
+    calculate_p_values('PATERNAL_MARIONI', 'Sens6.1')
     # calculate_p_values('PATERNAL_MARIONI')

@@ -87,7 +87,7 @@ class Experiment:
         self.pg2pd = None
         self.phen_cov = None
         self.only_covs = only_covs
-        self.cov_encodings = self.__load_cov_encodings__()
+        # self.cov_encodings = self.__load_cov_encodings__()
 
         # Training parameters
         self.GPU_LIST = gpu_list
@@ -316,13 +316,13 @@ class Experiment:
                 assert num_snps == 0
                 assert len(data_cols) == len(self.covs)
 
-            if not self.only_covs:
-                X = np.concatenate(
-                    (X[:, :, :num_snps], self.cov_encodings['train']), 
-                    axis=-1)
-                X_test = np.concatenate(
-                    (X_test[:, :, :num_snps], self.cov_encodings['test']), 
-                    axis=-1)
+            # if not self.only_covs:
+            #     X = np.concatenate(
+            #         (X[:, :, :num_snps], self.cov_encodings['train']), 
+            #         axis=-1)
+            #     X_test = np.concatenate(
+            #         (X_test[:, :, :num_snps], self.cov_encodings['test']), 
+            #         axis=-1)
 
             print(f'{gene:20} Group train data: {X.shape}')
             print(f'{gene:20} Group test data: {X_test.shape}')
@@ -331,7 +331,8 @@ class Experiment:
             # Model Parameters
             model_dict = {}
             model_dict['model_name'] = f'{num_snps}_{gene}'
-            self.model_params['inp'] = len(self.covs) if self.only_covs else num_snps
+            self.model_params['snps'] = num_snps
+            self.model_params['covs'] = len(self.covs)
             model_dict['model_type'] = self.model
             model_dict['model_args'] = self.model_params
         
@@ -432,35 +433,6 @@ class Experiment:
             raise e
         finally:
             lock.release()
-
-    # def parallel_shap(self, glist):
-    #     """Invoke training and permutation test for all genes passed to 
-    #     it. Each gene (or set of genes) is invoked parallely using
-    #     multiprocessing.Pool and trained using the corresponding set of
-    #     in the Experiment class' 'GPU_LIST' parameter.
-
-    #     Parameters
-    #     ----------
-    #     genes : dict
-    #         Dictionary containing all the genes. Structure:
-    #             {'chrom':list, 'names':list, 'start':list, 'end':list}
-    #     """
-        
-    #     m = mp.Manager()
-    #     lock = m.Lock()
-    #     func_args = []
-    #     cnt = 0
-    #     shared_gpu_stack = m.list(self.GPU_LIST)
-        
-    #     func_args = zip(
-    #         [shared_gpu_stack]*len(glist),
-    #         []
-
-    #     with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
-    #         pool.starmap_async(self.calculate_shap, 
-    #                            func_args, chunksize=1)
-    #         pool.close()
-    #         pool.join()
 
     def calculate_shap(self, gene_dict:dict, device:int) -> Figure:
         

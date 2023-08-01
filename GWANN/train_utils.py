@@ -34,7 +34,8 @@ from sklearn import metrics
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
-from statsmodels.stats.proportion import proportion_confint
+import random
+# random.seed(0)
 
 import torch
 torch.manual_seed(0)
@@ -81,31 +82,14 @@ class EarlyStopping:
     def __save_checkpoint__(self, model):
         torch.save(model, self.save_path)
 
-class MidpointNormalize(colors.Normalize):
-    """
-    Normalise the colorbar so that diverging bars work there way either side 
-    from a prescribed midpoint value)
-
-    e.g. im=ax1.imshow(array, norm=MidpointNormalize(midpoint=0.,vmin=-100, 
-                            vmax=100))
-    """
-    def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
-        self.midpoint = midpoint
-        colors.Normalize.__init__(self, vmin, vmax, clip)
-
-    def __call__(self, value, clip=None):
-        # I'm ignoring masked values and all kinds of edge cases to make a
-        # simple example...
-        x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
-        if clip:
-            return value
-        else:
-            return np.ma.masked_array(np.interp(value, x, y), np.isnan(value))
-
 class GWASDataset(Dataset):
     def __init__(self, data, labels):
-        self.data = torch.tensor(data, dtype=torch.float)
-        self.labels = torch.tensor(labels, dtype=torch.float)
+        if not isinstance(data, torch.Tensor):
+            self.data = torch.tensor(data, dtype=torch.float)
+            self.labels = torch.tensor(labels, dtype=torch.float)
+        else:
+            self.data = data
+            self.labels = labels
 
     def __len__(self):
         return len(self.data)
@@ -113,6 +97,55 @@ class GWASDataset(Dataset):
     def __getitem__(self, idx):
         # Return data (seq_len, batch, input_dim), label for index 
         return (self.data[idx], self.labels[idx])
+    
+class GroupSampler(Sampler):
+    def __init__(self, data_source, grp_size, random_seed):
+        self.data_source = data_source
+        self.grp_size = grp_size
+        self.data_size = grp_size*len(self)
+        random.seed(random_seed)
+
+    def __iter__(self):
+        indices = list(range(len(self.data_source)))
+        random.shuffle(indices)
+        for i in range(0, self.data_size, self.grp_size):
+            yield indices[i:i+self.grp_size]
+
+    def __len__(self):
+        return len(self.data_source)//self.grp_size
+
+class BalancedBatchGroupSampler(Sampler):
+    def __init__(self, dataset, batch_size, grp_size, random_seed=0):
+        self.case_idxs = torch.where(dataset.labels==1)[0]
+        self.cont_idxs = torch.where(dataset.labels==0)[0]
+        
+        assert batch_size % 2 == 0
+        self.batch_size = batch_size
+        
+        self.case_sampler = GroupSampler(self.case_idxs, 
+                                         grp_size=grp_size,
+                                         random_seed=random_seed)
+        self.cont_sampler = GroupSampler(self.cont_idxs, 
+                                         grp_size=grp_size,
+                                         random_seed=random_seed)
+        
+    def __iter__(self):
+        batch = []
+        for case, cont in it.zip_longest(it.cycle(self.case_sampler), self.cont_sampler):
+            if case is None or cont is None:
+                break
+            batch.append(self.case_idxs[case])
+            batch.append(self.cont_idxs[cont])
+            if len(batch) == self.batch_size:
+                random.shuffle(batch)
+                yield batch
+                batch = []
+            
+        if len(batch) != 0:
+            yield batch
+
+    def __len__(self):
+        return int(math.ceil((len(self.cont_sampler)*2)/self.batch_size))
 
 class FastTensorDataLoader:
     """A DataLoader-like object for a set of tensors that can be much faster than
@@ -211,6 +244,7 @@ class BalancedBatchSampler(Sampler):
         
     def __len__(self):
         return self.num_batches
+
 
 # Visualisation functions
 
@@ -1165,22 +1199,14 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         Xval, yval = X[val_ind], y[val_ind]
 
     train_dataset = GWASDataset(X[train_ind], y[train_ind])
-    train_sampler = SKFBatchSampler(train_dataset, batch_size=batch_size, 
-                                    shuffle=True, 
-                                    random_seed=0)
+    train_sampler = BalancedBatchGroupSampler(train_dataset, 
+                                              batch_size=batch_size, 
+                                              grp_size=model.grp_size, 
+                                              random_seed=0)
     train_dataloader = DataLoader(dataset=train_dataset, 
                                   batch_sampler=train_sampler)
-    # train_dataloader = DataLoader(dataset=train_dataset, 
-    #                               shuffle=True, batch_size=batch_size)
     
     val_dataset = GWASDataset(Xval, yval)
-
-    # train_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
-    #     batch_size=batch_size, shuffle=True)
-    # train_inf_dataloader = FastTensorDataLoader(X[train_ind], y[train_ind],
-    #     batch_size=8192, shuffle=False)
-    # val_dataloader = FastTensorDataLoader(Xval, yval, 
-    #     batch_size=2048, shuffle=False)
     
     # Send model to device and initialise weights and metric tensors
     model.to(device)
@@ -1286,7 +1312,8 @@ def training_stuff(model:nn.Module, damping:float, class_weights:np.ndarray,
             Learning rate scheduler object to use while training
     """
     # LOSS FUNTION
-    loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+    # loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=class_weights[1])
         
     # OPTIMISER
     if opt == 'sgd':
@@ -1442,30 +1469,35 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
     torch.backends.cudnn.benchmark = True
     with torch.no_grad():
         dataset = GWASDataset(X_tensor, y_tensor)
-        dataloader = DataLoader(dataset=dataset, batch_size=batch_size, 
-                                shuffle=False)
+        sampler = BalancedBatchGroupSampler(dataset=dataset, 
+                                            batch_size=batch_size, 
+                                            grp_size=model.grp_size,
+                                            random_seed=0)
+        dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
         y_pred = torch.tensor([], device=device).long()
         loss = 0.0
         
-        for bnum, sample in enumerate(dataloader):
-            X_batch = sample[0].to(device)
-            y_batch = sample[1].long().to(device)
-            
-            model.eval()
-            model = model.to(device)
-            loss_fn = loss_fn.to(device)
-            
-            raw_out = model.forward(X_batch)
-            y_pred = torch.cat(
-                (y_pred, pred_from_raw(raw_out.detach().clone())))
-            batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
-            loss = running_avg(loss, batch_loss, bnum+1)
+        # Iterate over the dataset 10 times. In each epoch, the grouping
+        # of samples will be different, so we will get an average
+        # accuracy over multiple groupings.
+        bnum = 0
+        for _ in range(10):
+            for sample in dataloader:
+                X_batch = sample[0].to(device)
+                y_batch = sample[1].long().to(device)
+                
+                model.eval()
+                model = model.to(device)
+                loss_fn = loss_fn.to(device)
+                
+                raw_out = model.forward(X_batch)
+                y_pred = torch.cat(
+                    (y_pred, pred_from_raw(raw_out.detach().clone())))
+                batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
+                loss = running_avg(loss, batch_loss, bnum+1)
+                
+                bnum += 1
 
-        # if len(y_tensor) != len(y_pred):
-        #     diff = len(y_tensor) - len(y_pred)
-        #     conf_mat = gen_conf_mat(y_tensor[:-diff].detach().clone(), y_pred,
-        #         class_weights=class_weights)
-        # else:
         class_weights = compute_class_weight(class_weight='balanced', 
                                         classes=[0, 1], 
                                         y=y_tensor.cpu().numpy())

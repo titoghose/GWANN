@@ -17,7 +17,7 @@ class Identity(nn.Module):
         return x
 
 class AttentionMask1(nn.Module):
-    def __init__(self, a):
+    def __init__(self):
         super(AttentionMask1, self).__init__()
         self.relu = nn.ReLU()
         # self.activ = a()
@@ -31,7 +31,7 @@ class AttentionMask1(nn.Module):
         
         return elemwise_prod
 
-class GWANNet5(nn.Module):
+class _GWANNet5(nn.Module):
     """Attention applied to GroupTrain model after the encoding created
     by the CNN layer and Avg Pooling.
 
@@ -44,6 +44,7 @@ class GWANNet5(nn.Module):
                  att_model, att_activ):
         super(GWANNet5, self).__init__()
 
+        self.grp_size = grp_size
         self.snp_enc = nn.Conv1d(inp, enc, 1)
         self.pool_ind = nn.AvgPool1d(grp_size)        
         self.att_mask = att_model(att_activ)
@@ -70,6 +71,52 @@ class GWANNet5(nn.Module):
         cov_out = torch.mean(x[:, :, self.num_snps:], dim=1)
         
         data_vec = torch.cat((snps_out, cov_out), dim=-1)
+        
+        raw_out = self.end_model(data_vec)
+        
+        return raw_out
+
+class GWANNet5(torch.nn.Module):
+    """
+    """
+    def __init__(self, grp_size, enc, snps, covs, h, d, out, activation, 
+                 att_model):
+        super(GWANNet5, self).__init__()
+
+        self.grp_size = grp_size
+        self.snp_enc = nn.Conv1d(snps, enc, 1)
+        self.snp_pool = nn.AvgPool1d(grp_size)        
+        self.snp_mask = att_model()
+        self.snps_model = nn.Sequential(
+            BasicNN(enc, h, d, out, activation),
+            nn.ReLU(),
+            nn.BatchNorm1d(out))
+        
+        self.cov_enc = nn.Conv1d(covs, enc, 1)
+        self.cov_pool = nn.AvgPool1d(grp_size)
+        self.cov_mask = att_model()
+        self.cov_model = nn.Sequential(
+            BasicNN(enc, h, d, out, activation),
+            nn.ReLU(),
+            nn.BatchNorm1d(out))
+        
+        self.num_snps = snps
+        
+        # For T2D and AD
+        self.end_model = BasicNN(16, [16, 8], [0.1, 0.1], 1, nn.ReLU)
+
+    def forward(self, x):
+        snp_enc = self.snp_enc(torch.transpose(x[:, :, :self.num_snps], 1, 2))
+        snp_pooled = torch.squeeze(self.snp_pool(snp_enc), dim=-1)
+        snp_att_out = self.snp_mask(snp_pooled)
+        snp_out = self.snps_model(torch.squeeze(snp_att_out, dim=1))
+        
+        cov_enc = self.snp_enc(torch.transpose(x[:, :, self.num_snps:], 1, 2))
+        cov_pooled = torch.squeeze(self.cov_pool(cov_enc), dim=-1)
+        cov_att_out = self.att_mask(cov_pooled)
+        cov_out = self.snps_model(torch.squeeze(cov_att_out, dim=1))
+
+        data_vec = torch.cat((snp_out, cov_out), dim=-1)
         
         raw_out = self.end_model(data_vec)
         

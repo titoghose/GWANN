@@ -799,6 +799,7 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     return data_tuple
 
 def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str, 
+
                     covs:list, sys_params:dict) -> tuple:
     """Given a training and testing pandas dataframe, this function
     scales features between 0 and 1, and converts samples into 'grouped
@@ -853,27 +854,29 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     
     # scaled_test_df = mm_scaler.transform(test_df)
     # test_df.iloc[:, :num_snps] = scaled_test_df[:, :num_snps]
-    
-    # Fill missing values for f.6138
-    # train_df.fillna(-1, inplace=True)
-    # test_df.fillna(-1, inplace=True)
 
     # Convert data into grouped samples
-    grps = np.load(f'{sys_params["GROUP_IDS_PATH"]}')
-    grp_size = grps['train_grps'].shape[1]
-    train_grps = np.asarray(grps['train_grps'].flatten(), dtype=int).astype(str)
-    test_grps = np.asarray(grps['test_grps'].flatten(), dtype=int).astype(str)
+    # grps = np.load(f'{sys_params["GROUP_IDS_PATH"]}')
+    # grp_size = grps['train_grps'].shape[1]
+    # train_grps = np.asarray(grps['train_grps'].flatten(), dtype=int).astype(str)
+    # test_grps = np.asarray(grps['test_grps'].flatten(), dtype=int).astype(str)
     
-    X = train_df.loc[train_grps][data_cols].to_numpy()
-    X = np.reshape(X, (-1, grp_size, X.shape[-1]))
-    y = grps['train_grp_labels']
+    # X = train_df.loc[train_grps][data_cols].to_numpy()
+    # X = np.reshape(X, (-1, grp_size, X.shape[-1]))
+    # y = grps['train_grp_labels']
 
-    X_test = test_df.loc[test_grps][data_cols].to_numpy()
-    X_test = np.reshape(X_test, (-1, grp_size, X_test.shape[-1]))
-    y_test = grps['test_grp_labels']
+    # X_test = test_df.loc[test_grps][data_cols].to_numpy()
+    # X_test = np.reshape(X_test, (-1, grp_size, X_test.shape[-1]))
+    # y_test = grps['test_grp_labels']
+    
+    X = train_df[data_cols].to_numpy()
+    y = train_df[label].values
+    
+    X_test = test_df[data_cols].to_numpy()
+    y_test = test_df[label].values
     
     class_weights = compute_class_weight(class_weight='balanced', 
-                                        classes=np.unique(y), y=y)
+                                        classes=[0, 1], y=y)
 
     return X, y, X_test, y_test, class_weights, data_cols, num_snps
 

@@ -99,14 +99,14 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     model = GWANNet5
     model_params = {
         'grp_size':grp_size,
-        'inp':0,
+        'snps':0,
+        'covs':0,
         'enc':8,
         'h':[32, 16],
         'd':[0.5, 0.5],
         'out':8,
         'activation':nn.ReLU,
-        'att_model':AttentionMask1, 
-        'att_activ':nn.Sigmoid
+        'att_model':AttentionMask1
     }
     hp_dict = {
         'optimiser': 'adam',

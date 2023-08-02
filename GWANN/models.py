@@ -87,7 +87,7 @@ class GWANNet5(torch.nn.Module):
         self.snp_enc = nn.Conv1d(snps, enc, 1)
         self.snp_pool = nn.AvgPool1d(grp_size)        
         self.snp_mask = att_model()
-        self.snps_model = nn.Sequential(
+        self.snp_model = nn.Sequential(
             BasicNN(enc, h, d, out, activation),
             nn.ReLU(),
             nn.BatchNorm1d(out))
@@ -109,12 +109,12 @@ class GWANNet5(torch.nn.Module):
         snp_enc = self.snp_enc(torch.transpose(x[:, :, :self.num_snps], 1, 2))
         snp_pooled = torch.squeeze(self.snp_pool(snp_enc), dim=-1)
         snp_att_out = self.snp_mask(snp_pooled)
-        snp_out = self.snps_model(torch.squeeze(snp_att_out, dim=1))
+        snp_out = self.snp_model(torch.squeeze(snp_att_out, dim=1))
         
-        cov_enc = self.snp_enc(torch.transpose(x[:, :, self.num_snps:], 1, 2))
+        cov_enc = self.cov_enc(torch.transpose(x[:, :, self.num_snps:], 1, 2))
         cov_pooled = torch.squeeze(self.cov_pool(cov_enc), dim=-1)
-        cov_att_out = self.att_mask(cov_pooled)
-        cov_out = self.snps_model(torch.squeeze(cov_att_out, dim=1))
+        cov_att_out = self.cov_mask(cov_pooled)
+        cov_out = self.cov_model(torch.squeeze(cov_att_out, dim=1))
 
         data_vec = torch.cat((snp_out, cov_out), dim=-1)
         

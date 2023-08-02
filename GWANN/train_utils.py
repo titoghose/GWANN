@@ -38,7 +38,7 @@ import random
 # random.seed(0)
 
 import torch
-torch.manual_seed(0)
+torch.manual_seed(int(os.environ['TORCH_SEED']))
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 import torch.nn as nn
@@ -115,7 +115,7 @@ class GroupSampler(Sampler):
         return len(self.data_source)//self.grp_size
 
 class BalancedBatchGroupSampler(Sampler):
-    def __init__(self, dataset, batch_size, grp_size, random_seed=0):
+    def __init__(self, dataset, batch_size, grp_size, random_seed):
         self.case_idxs = torch.where(dataset.labels==1)[0]
         self.cont_idxs = torch.where(dataset.labels==0)[0]
         
@@ -142,6 +142,7 @@ class BalancedBatchGroupSampler(Sampler):
                 batch = []
             
         if len(batch) != 0:
+            random.shuffle(batch)
             yield batch
 
     def __len__(self):
@@ -1063,7 +1064,8 @@ def pred_from_raw(raw_out:torch.tensor) -> torch.tensor:
     torch tensor
         Class predictions.
     """
-    pred = torch.argmax(torch.softmax(raw_out, dim=1), dim=1)
+    # pred = torch.argmax(torch.softmax(raw_out, dim=1), dim=1)
+    pred = torch.round(torch.sigmoid(raw_out)) 
     return pred
 
 def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor, 
@@ -1202,7 +1204,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     train_sampler = BalancedBatchGroupSampler(train_dataset, 
                                               batch_size=batch_size, 
                                               grp_size=model.grp_size, 
-                                              random_seed=0)
+                                              random_seed=int(os.environ['GROUP_SEED']))
     train_dataloader = DataLoader(dataset=train_dataset, 
                                   batch_sampler=train_sampler)
     
@@ -1224,13 +1226,14 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         
         # Train
         model.train()
+        # for _ in range(10):
         for bnum, sample in enumerate(train_dataloader):
             model.zero_grad()
             
             X_batch = sample[0].to(device)
-            y_batch = sample[1].long().to(device)
+            y_batch = sample[1][:, 0].float().to(device)
 
-            raw_out = model.forward(X_batch)
+            raw_out = model.forward(X_batch)[:, 0]
             # y_pred = pred_from_raw(raw_out.detach().clone())
             loss = loss_fn(raw_out, y_batch)
             loss.backward()
@@ -1261,21 +1264,6 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         if early_stopping.early_stop:
             best_state = model.state_dict()
             break
-
-        # if log is not None:
-        #     if best_val < avg_acc[epoch][1]:
-        #         best_val = avg_acc[epoch][1]
-        #         best_ep = epoch
-        #         best_state = model.state_dict()
-        #         torch.save(model, '{}/{}.pt'.format(log, model_name))
-                # print("[{:4d}] Train Acc: {:.3f} Val Acc: {:.3f}, \
-                #             Train Loss: {:.3f} Val Loss:{:.3f}".format(
-                #                 epoch, avg_acc[epoch][0], avg_acc[epoch][1], 
-                #                 avg_loss[epoch][0], avg_loss[epoch][1]))
-            
-            # if epoch%200 == 0 or (epoch == epochs-1):
-            #     torch.save(model, '{}/{}_Ep{}.pt'.format(log, model_name, epoch))
-    
 
     print('\n\n', model_name, ' BEST EPOCH ', early_stopping.best_epoch, '\n\n')
     
@@ -1404,8 +1392,8 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
         scheduler = None
 
     train_ind = np.arange(X.shape[0])
-    np.random.seed(6211)
-    np.random.shuffle(train_ind)
+    # np.random.seed(6211)
+    # np.random.shuffle(train_ind)
 
     training_dict = {
         'model_name': model_name,
@@ -1472,27 +1460,29 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         sampler = BalancedBatchGroupSampler(dataset=dataset, 
                                             batch_size=batch_size, 
                                             grp_size=model.grp_size,
-                                            random_seed=0)
+                                            random_seed=int(os.environ['GROUP_SEED']))
         dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
-        y_pred = torch.tensor([], device=device).long()
-        loss = 0.0
         
         # Iterate over the dataset 10 times. In each epoch, the grouping
         # of samples will be different, so we will get an average
         # accuracy over multiple groupings.
+        y_pred = torch.tensor([], device=device).float()
+        y_target = torch.tensor([], device=device).float()
+        loss = 0.0
         bnum = 0
         for _ in range(10):
             for sample in dataloader:
                 X_batch = sample[0].to(device)
-                y_batch = sample[1].long().to(device)
+                y_batch = sample[1][:, 0].float().to(device)
                 
                 model.eval()
                 model = model.to(device)
                 loss_fn = loss_fn.to(device)
                 
-                raw_out = model.forward(X_batch)
+                raw_out = model.forward(X_batch)[:, 0]
                 y_pred = torch.cat(
                     (y_pred, pred_from_raw(raw_out.detach().clone())))
+                y_target = torch.cat((y_target, y_batch.detach().clone()))
                 batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
                 loss = running_avg(loss, batch_loss, bnum+1)
                 
@@ -1502,15 +1492,12 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
                                         classes=[0, 1], 
                                         y=y_tensor.cpu().numpy())
         class_weights = torch.tensor(class_weights, device=device).float()
-        conf_mat = gen_conf_mat(y_tensor.detach().clone(), 
-            y_pred.to(y_tensor.device), class_weights=class_weights)
-        
-        y_preds = y_pred.cpu()
-        losses = loss
-        conf_mats = list(conf_mat)
+        conf_mat = gen_conf_mat(y_target.detach().clone(), y_pred, 
+                                class_weights=class_weights)
+
     torch.backends.cudnn.benchmark = False
 
-    return y_preds, conf_mats, losses
+    return  y_pred.cpu(), conf_mat, loss
 
 def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray, 
           model_dict:dict, optim_dict:dict, train_dict:dict, 

@@ -473,15 +473,13 @@ def sensitivity_7():
         #                               num_procs=103)
 
     for label in ['FH_AD']:
-        grp_size = 10
-        for oversample in [20]:
-            for si, seed in enumerate([192]):
+        for grp_size in [10]:
                 torch_seed=int(os.environ['TORCH_SEED'])
                 random_seed=int(os.environ['GROUP_SEED'])
-                exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v2'
+                exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist[:5], grp_size=grp_size, shap_plots=False)
+                            glist=glist[:20], grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 

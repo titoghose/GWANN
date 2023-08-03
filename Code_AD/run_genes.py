@@ -110,7 +110,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     }
     hp_dict = {
         'optimiser': 'adam',
-        'lr': 5e-3,
+        'lr': 5e-4,
         'batch': 256,
         'epochs': 250,
         'early_stopping':20

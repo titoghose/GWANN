@@ -41,6 +41,8 @@ import torch
 torch.manual_seed(int(os.environ['TORCH_SEED']))
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -65,8 +67,8 @@ class EarlyStopping:
         score = metric*self.inc
         
         if self.best_score is None:
-            self.best_score = epoch
-            self.best_epoch = score
+            self.best_score = score
+            self.best_epoch = epoch
             self.__save_checkpoint__(model)
         
         elif score < self.best_score + self.delta:
@@ -299,18 +301,11 @@ def comparitive_train_plots(logs_dir, gene, m_plot, sweight=0, save_as='svg',
         metrics = {'f1':[[], []], 'prec':[[], []], 'rec':[[], []], 'acc':[[], []], 
             'mcc':[[], []], 'loss':[loss[:,0], loss[:,1]]}
         for i, cm in enumerate(conf_mat):
-            tf, tp, tr, ta, tm = metrics_from_conf_mat(cm[0])
-            vf, vp, vr, va, vm = metrics_from_conf_mat(cm[1])
-            metrics['f1'][0].append(tf)
-            metrics['prec'][0].append(tp)
-            metrics['rec'][0].append(tr)
-            metrics['acc'][0].append(ta)
-            metrics['mcc'][0].append(tm)
-            metrics['f1'][1].append(vf)
-            metrics['prec'][1].append(vp)
-            metrics['rec'][1].append(vr)
-            metrics['acc'][1].append(va)
-            metrics['mcc'][1].append(vm)
+            train_mets = metrics_from_conf_mat(cm[0])
+            test_mets = metrics_from_conf_mat(cm[1])
+            for k in train_mets.keys():
+                metrics[k][0].append(train_mets[k])
+                metrics[k][1].append(test_mets[k])
 
         if m_plot is None:
             m_plot = metrics.keys()
@@ -365,18 +360,11 @@ def create_train_plots(gene_dir, m_plot, sweight=0, save_as='svg', suffix=''):
     metrics = {'f1':[[], []], 'prec':[[], []], 'rec':[[], []], 'acc':[[], []], 
         'mcc':[[], []], 'loss':[loss[:,0], loss[:,1]]}
     for i, cm in enumerate(conf_mat):
-        tf, tp, tr, ta, tm = metrics_from_conf_mat(cm[0])
-        vf, vp, vr, va, vm = metrics_from_conf_mat(cm[1])
-        metrics['f1'][0].append(tf)
-        metrics['prec'][0].append(tp)
-        metrics['rec'][0].append(tr)
-        metrics['acc'][0].append(ta)
-        metrics['mcc'][0].append(tm)
-        metrics['f1'][1].append(vf)
-        metrics['prec'][1].append(vp)
-        metrics['rec'][1].append(vr)
-        metrics['acc'][1].append(va)
-        metrics['mcc'][1].append(vm)
+        train_mets = metrics_from_conf_mat(cm[0])
+        test_mets = metrics_from_conf_mat(cm[1])
+        for k in train_mets.keys():
+            metrics[k][0].append(train_mets[k])
+            metrics[k][1].append(test_mets[k])
 
     # Create plot for each metric
     fig, ax = plt.subplots()
@@ -1106,7 +1094,7 @@ def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor,
     
     return (tn, fp, fn, tp)
 
-def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> tuple:
+def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> dict: 
     """Function to convert confusion matrix values into F1-score, 
     precision, recall, accuracy and MCC. Any value is that not
     computable for a metric due to division by 0 or a 0/0 computation 
@@ -1146,7 +1134,7 @@ def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> tuple:
     if pos_pred and neg_pred and pos_obs and neg_obs:
         mcc = ((tp*tn) - (fp*fn))/np.sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn))
     
-    return f1, prec, rec, acc, mcc
+    return {'f1':f1, 'prec':prec, 'rec':rec, 'acc':acc, 'mcc':mcc}
 
 def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor, 
                    Xt:torch.tensor, yt:torch.tensor, training_dict:dict, 
@@ -1205,12 +1193,17 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
                                               batch_size=batch_size, 
                                               grp_size=model.grp_size, 
                                               random_seed=int(os.environ['GROUP_SEED']))
+    
     train_dataloader = DataLoader(dataset=train_dataset, 
                                   batch_sampler=train_sampler)
     
     val_dataset = GWASDataset(Xval, yval)
     
     # Send model to device and initialise weights and metric tensors
+    # for p in model.named_parameters():
+    #     print(p[1][0, :, 0])
+    #     break
+
     model.to(device)
     loss_fn = loss_fn.to(device)
     agg_conf_mat = torch.zeros((epochs, 2, 4))
@@ -1218,7 +1211,8 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     avg_loss = torch.zeros((epochs, 2))
     
     early_stopping = EarlyStopping(patience=early_stopping_thresh, 
-                                   save_path=f'{log}/{model_name}.pt')
+                                   save_path=f'{log}/{model_name}.pt', 
+                                   inc=False)
 
     current_lr = optimiser.state_dict()['param_groups'][0]['lr']
     best_state = model.state_dict()
@@ -1248,7 +1242,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
                 X_tensor, y_tensor, model, loss_fn, device)
             agg_conf_mat[epoch][si] += torch.as_tensor(conf_mat)
             avg_loss[epoch][si] = loss
-            _, _, _, acc, _ = metrics_from_conf_mat(agg_conf_mat[epoch][si])
+            acc = metrics_from_conf_mat(agg_conf_mat[epoch][si])['acc']
             avg_acc[epoch][si] = acc
         
         # If val acc plateaus or starts decreasing:
@@ -1260,7 +1254,8 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             if new_lr < current_lr:
                 model.load_state_dict(best_state)
 
-        early_stopping(avg_acc[epoch][1], model, epoch)
+        early_stopping(avg_loss[epoch][1], model, epoch)
+        # early_stopping(avg_acc[epoch][1], model, epoch)
         if early_stopping.early_stop:
             best_state = model.state_dict()
             break
@@ -1384,7 +1379,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     else:
         model = construct_model(model_type, **model_args)
         model.apply(weight_init_linear)
-    
+
     loss_fn, optimiser, scheduler = training_stuff(model=model, damping=damp, 
                                         class_weights=class_weights, lr=lr, 
                                         opt=optimiser)
@@ -1454,13 +1449,14 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
     y_preds = []
     losses = []
     
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
     with torch.no_grad():
         dataset = GWASDataset(X_tensor, y_tensor)
         sampler = BalancedBatchGroupSampler(dataset=dataset, 
                                             batch_size=batch_size, 
                                             grp_size=model.grp_size,
                                             random_seed=int(os.environ['GROUP_SEED']))
+        
         dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
         
         # Iterate over the dataset 10 times. In each epoch, the grouping
@@ -1470,7 +1466,7 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         y_target = torch.tensor([], device=device).float()
         loss = 0.0
         bnum = 0
-        for _ in range(10):
+        for _ in range(1 if len(dataloader) > 1 else 20):
             for sample in dataloader:
                 X_batch = sample[0].to(device)
                 y_batch = sample[1][:, 0].float().to(device)
@@ -1495,9 +1491,9 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         conf_mat = gen_conf_mat(y_target.detach().clone(), y_pred, 
                                 class_weights=class_weights)
 
-    torch.backends.cudnn.benchmark = False
+    # torch.backends.cudnn.benchmark = False
 
-    return  y_pred.cpu(), conf_mat, loss
+    return  y_pred.cpu(), list(conf_mat), loss
 
 def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray, 
           model_dict:dict, optim_dict:dict, train_dict:dict, 
@@ -1541,7 +1537,7 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     
     best_test_cm = conf_mat[best_ep, 1]
     metrics = metrics_from_conf_mat(best_test_cm)
-    best_test_acc = metrics[3]
+    best_test_acc = metrics['acc']
     best_test_loss = loss[best_ep, 1]
 
     gc.collect()

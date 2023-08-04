@@ -1200,10 +1200,6 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     val_dataset = GWASDataset(Xval, yval)
     
     # Send model to device and initialise weights and metric tensors
-    # for p in model.named_parameters():
-    #     print(p[1][0, :, 0])
-    #     break
-
     model.to(device)
     loss_fn = loss_fn.to(device)
     agg_conf_mat = torch.zeros((epochs, 2, 4))
@@ -1373,12 +1369,17 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     X, y = torch.tensor(X).float(), torch.tensor(y).long()
     X_test, y_test = torch.tensor(X_test).float(), torch.tensor(y_test).long()
     
-    if 'pretrained_model' in model_dict.keys():
-        model = torch.load(model_dict['pretrained_model'], 
-            map_location='cpu')
-    else:
-        model = construct_model(model_type, **model_args)
-        model.apply(weight_init_linear)
+    model = construct_model(model_type, **model_args)
+    for named_module in model.named_modules():
+        if 'cov_model' in named_module[0]:
+            continue
+        weight_init_linear(named_module[1])
+
+    # Freeze covariate model weights
+    if 'cov_model' in model_args:
+        for param in model.named_parameters():
+            if 'cov_model' in param[0]:
+                param[1].requires_grad = False
 
     loss_fn, optimiser, scheduler = training_stuff(model=model, damping=damp, 
                                         class_weights=class_weights, lr=lr, 

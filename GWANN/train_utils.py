@@ -38,9 +38,11 @@ import random
 # random.seed(0)
 
 import torch
-torch.manual_seed(0)
+torch.manual_seed(int(os.environ['TORCH_SEED']))
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -65,8 +67,8 @@ class EarlyStopping:
         score = metric*self.inc
         
         if self.best_score is None:
-            self.best_score = epoch
-            self.best_epoch = score
+            self.best_score = score
+            self.best_epoch = epoch
             self.__save_checkpoint__(model)
         
         elif score < self.best_score + self.delta:
@@ -115,7 +117,7 @@ class GroupSampler(Sampler):
         return len(self.data_source)//self.grp_size
 
 class BalancedBatchGroupSampler(Sampler):
-    def __init__(self, dataset, batch_size, grp_size, random_seed=0):
+    def __init__(self, dataset, batch_size, grp_size, random_seed):
         self.case_idxs = torch.where(dataset.labels==1)[0]
         self.cont_idxs = torch.where(dataset.labels==0)[0]
         
@@ -142,6 +144,7 @@ class BalancedBatchGroupSampler(Sampler):
                 batch = []
             
         if len(batch) != 0:
+            random.shuffle(batch)
             yield batch
 
     def __len__(self):
@@ -193,143 +196,7 @@ class FastTensorDataLoader:
     def __len__(self):
         return self.n_batches
 
-class SKFBatchSampler(Sampler):
-
-    def __init__(self, dataset, batch_size, shuffle, random_seed):
-        self.labels = dataset.labels
-        self.num_labels = len(dataset.labels)
-        self.batch_size = batch_size
-        self.num_batches, rem = divmod(self.num_labels, self.batch_size)
-        if rem >= 1:
-            self.num_batches += 1
-        
-        self.splitter = StratifiedKFold(n_splits=self.num_batches, 
-                                        shuffle=shuffle, random_state=random_seed)
-
-    def __iter__(self):
-        for _, batch_ind in self.splitter.split(self.labels, self.labels):
-            yield batch_ind
-            
-    def __len__(self):
-        return self.num_batches
-
-class BalancedBatchSampler(Sampler):
-    def __init__(self, dataset, batch_size, shuffle):
-        self.unique_labels = np.unique(dataset.labels)
-        self.labels = dataset.labels
-        self.label_inds = {label:np.where(dataset.labels == label)[0] for label in self.unique_labels}
-
-        self.num_labels = len(dataset.labels)
-        self.batch_size = batch_size
-        self.num_batches, rem = divmod(self.num_labels, self.batch_size)
-        if rem >= 1:
-            self.num_batches += 1
-        
-        self.num_items, rem = divmod(self.batch_size, len(self.unique_labels))
-        assert rem == 0, 'Batch size is not divisible by number of clases'
-
-        self.shuffle = shuffle
-
-    def __iter__(self):
-        if self.shuffle:
-            rand_inds = {k:np.random.choice(len(v), len(v), replace=False) for k, v in self.label_inds.items()}
-        else:
-            rand_inds = {k:np.arange(len(v)) for k, v in self.label_inds.items()}
-        
-        for b in range(self.num_batches):
-            batch_ind = []
-            for label, ri in rand_inds.items():
-                batch_ind.extend(self.label_inds[label][ri[b*self.num_items:(b+1)*self.num_items]])
-            yield batch_ind
-        
-    def __len__(self):
-        return self.num_batches
-
-
 # Visualisation functions
-
-def create_perm_plots(gene_dir, m_plot, save_as='svg', suffix=''):
-    return
-
-def comparitive_train_plots(logs_dir, gene, m_plot, sweight=0, save_as='svg', 
-                            suffix=''):
-    """Generate plots for training metrics.
-
-        Parameters
-    ----------
-    logs_dir: str
-        Path to base folder containing all the log files.
-    gene : str
-        Name of the gene.
-    mplot: list of str or None
-        Metrics used to generate the different plots (default=['acc',
-         'loss']). If None, all metrics will be plot.
-    sweight : Value ranging between 0 and 1 specifying the extent of
-        smooto be applied to the plots.
-    tv: list of str
-        Group to generate plot for (default=['train', 'val']).
-    save_as:str
-        Extension for the plot (default='svg').
-    suffix: str
-        Suffix to add to the figure name (default='').
-
-    """
-    
-    # Create plot for each metric
-    fig, ax = plt.subplots()
-    fig_name = '{}/Compare_Plots/{}_{}.{}'.format(logs_dir, gene, suffix, save_as)
-    
-    for d in os.listdir(logs_dir):
-        d_path = os.path.join(logs_dir, d)
-        if not os.path.isdir(d_path):
-            continue
-        
-        gene_dir = '{}/{}'.format(d_path, gene)
-        try:
-            tm = np.load('{}/training_metrics.npz'.format(gene_dir))
-        except FileNotFoundError:
-            print(gene_dir)
-            continue
-        
-        # Get values only for the first FOLD
-        conf_mat = tm['agg_conf_mat'][0]
-        loss = tm['agg_loss'][0]
-        
-        metrics = {'f1':[[], []], 'prec':[[], []], 'rec':[[], []], 'acc':[[], []], 
-            'mcc':[[], []], 'loss':[loss[:,0], loss[:,1]]}
-        for i, cm in enumerate(conf_mat):
-            tf, tp, tr, ta, tm = metrics_from_conf_mat(cm[0])
-            vf, vp, vr, va, vm = metrics_from_conf_mat(cm[1])
-            metrics['f1'][0].append(tf)
-            metrics['prec'][0].append(tp)
-            metrics['rec'][0].append(tr)
-            metrics['acc'][0].append(ta)
-            metrics['mcc'][0].append(tm)
-            metrics['f1'][1].append(vf)
-            metrics['prec'][1].append(vp)
-            metrics['rec'][1].append(vr)
-            metrics['acc'][1].append(va)
-            metrics['mcc'][1].append(vm)
-
-        if m_plot is None:
-            m_plot = metrics.keys()
-        for m in m_plot:
-            # Initialise graph values
-            yt = smoothen(metrics[m][0], sweight)
-            yv = smoothen(metrics[m][1], sweight)
-            x = np.arange(len(yt))
-            
-            # Create and save the graph
-            train_line, = ax.plot(x, yt, label=d, linestyle='-')
-            ax.plot(x, yv, label=d, linestyle=':', c=train_line.get_color())
-            ax.tick_params(axis='both', labelsize=8)
-            
-    ax.set_xlabel('Epochs')
-    ax.set_ylabel('_'.join(m_plot))
-    ax.legend(loc='lower right', fontsize=4)
-    fig.savefig(fig_name)
-    plt.close(fig)
-
 def create_train_plots(gene_dir, m_plot, sweight=0, save_as='svg', suffix=''):
     """Generate plots for training metrics.
 
@@ -364,18 +231,11 @@ def create_train_plots(gene_dir, m_plot, sweight=0, save_as='svg', suffix=''):
     metrics = {'f1':[[], []], 'prec':[[], []], 'rec':[[], []], 'acc':[[], []], 
         'mcc':[[], []], 'loss':[loss[:,0], loss[:,1]]}
     for i, cm in enumerate(conf_mat):
-        tf, tp, tr, ta, tm = metrics_from_conf_mat(cm[0])
-        vf, vp, vr, va, vm = metrics_from_conf_mat(cm[1])
-        metrics['f1'][0].append(tf)
-        metrics['prec'][0].append(tp)
-        metrics['rec'][0].append(tr)
-        metrics['acc'][0].append(ta)
-        metrics['mcc'][0].append(tm)
-        metrics['f1'][1].append(vf)
-        metrics['prec'][1].append(vp)
-        metrics['rec'][1].append(vr)
-        metrics['acc'][1].append(va)
-        metrics['mcc'][1].append(vm)
+        train_mets = metrics_from_conf_mat(cm[0])
+        test_mets = metrics_from_conf_mat(cm[1])
+        for k in train_mets.keys():
+            metrics[k][0].append(train_mets[k])
+            metrics[k][1].append(test_mets[k])
 
     # Create plot for each metric
     fig, ax = plt.subplots()
@@ -428,558 +288,6 @@ def smoothen(data, weight):
         smooth_data.append(s_data)
     return np.array(smooth_data)
 
-def hyperparameter_plot2(log_dir, log_file, genes):
-    """
-    Function to generate a hyperparamter comparison plot between 
-    grid and random search.
-
-    Parameters
-    ----------
-    log_dir: str
-        Path to the base folder containing all log files.
-    log_file: str
-        Specific log file containing hyperparamter search logs.
-    genes: list of str
-        List of genes to consider while calculating average 
-        metric values.
-
-    """
-    hunits = list(map(lambda x:2**x, np.arange(10,0,-1)))
-    hidden = list(it.product(hunits, hunits))
-    hidden.extend(list(it.product(hunits, hunits, hunits)))
-    hidden = [str(x) for x in hidden]
-
-    tmp = pd.DataFrame(hidden, columns=['hidden'])
-    tmp['sort1'] = tmp['hidden'].apply(lambda x:len(ast.literal_eval(x)))
-    tmp['sort2'] = tmp['hidden'].apply(lambda x:ast.literal_eval(x)[0])
-    tmp['sort3'] = tmp['hidden'].apply(lambda x:ast.literal_eval(x)[1])
-    tmp['sort4'] = tmp['hidden'].apply(lambda x:ast.literal_eval(x)[-1])
-    tmp.sort_values(['sort1','sort2','sort3','sort4'], inplace=True)
-    
-    hidden = tmp['hidden'].to_list()
-    x = np.arange(len(hidden))
-    drop = [0.1, 0.2, 0.3, 0.4, 0.5]
-    lr = 0.01
-    fig, ax = plt.subplots(2, 1, sharex=True, figsize=(30, 8), dpi=300)
-    ax = ax.flatten()
-    min_loss1 = 100
-    min_loss2 = 100
-    max_acc1 = 0
-    max_acc2 = 0
-    
-    for grid, col in zip(['/grid', ''], ['Blues', 'Reds']):
-        # Grid Search
-        h_dict = {str(h):[0, 0, 0] for h in hidden}
-        mat = np.zeros((len(drop)*10, len(hidden)))
-        for gene in tqdm.tqdm(genes):
-            fname = '{}/Genes/{}{}/{}'.format(log_dir, gene, grid, log_file)
-            df = pd.read_csv(fname)
-            tmp_dict = {str(h):[100, 0, 0] for h in hidden}
-            for _, row in df.iterrows():
-                if row['LR'] == 0.001:
-                    continue
-
-                h = str(row['hidden'])
-                d = float(row['dropout'])
-                cnt = h_dict[h][2]
-                tmp_dict[h][0] = min(tmp_dict[h][0], row['val_loss'])
-                tmp_dict[h][1] = max(tmp_dict[h][1], row['val_acc'])
-                tmp_dict[h][2] += 1
-                
-                hi = hidden.index(h)
-                di = drop.index(d)
-                mat[di*10:(di+1)*10, hi] += row['val_acc']
-            
-            for h in hidden:
-                h = str(h)
-                h_dict[h][0] += tmp_dict[h][0]
-                h_dict[h][1] += tmp_dict[h][1]
-                h_dict[h][2] += tmp_dict[h][2]
-
-        acc = np.array([h_dict[h][1] for h in hidden])/len(genes)
-        max_acc1 = max(np.max(acc), max_acc1)
-        acc = -1*(acc - (max_acc1 + 1e-4))
-        acc[acc==(max_acc1 + 1e-4)] = 0
-        nll = np.zeros(len(acc))
-        np.log(acc, out=nll, where=(acc!=0))
-        nll *= -1
-        ax[0].scatter(x, nll, c=col[0].lower())
-        
-        mat = mat/len(genes)
-        max_acc2 = max(np.max(mat), max_acc2)
-        mat = -1*(mat - (max_acc2 + 1e-4))
-        mat[mat==(max_acc2 + 1e-4)] = 0
-        mat_nll = np.zeros(mat.shape)
-        np.log(mat, out=mat_nll, where=(mat!=0))
-        mat_nll *= -1
-        cmap = cm.get_cmap(col)
-        cmap.set_under('k', alpha=0)
-        ax[1].imshow(mat_nll, cmap=cmap, origin='bottom', vmin=1e-10)
-        if 'Blues' in col:
-            ax[0].axvline(np.argmax(nll), c='k', linestyle=':')
-            ax[1].axvline(np.argmax(nll), c='k', linestyle=':')
-        
-        print(max_acc1, max_acc2, hidden[np.argmax(nll)])
-    
-    for x in np.arange(0,10*len(drop),10):
-        ax[1].axhline(x-0.5, c='k', linestyle='-', linewidth=0.5)
-    
-    ax[0].tick_params(labelsize=14)
-    ax[1].tick_params(labelsize=14)
-    ax[1].set_yticks(np.arange(5,len(drop)*10, 10)-0.5)
-    ax[1].set_yticklabels([0.1, 0.2, 0.3, 0.4, 0.5])
-    fig.savefig('{}/Figures/hyp_plot_grid.svg'.format(log_dir))
-    plt.close()
-
-def input_perturbation(gene, model_path, X, y, num_snps, class_weights, 
-                        columns, device, folder, prefix):
-    """
-    Function that perturbs each input in the data vector (one at a time) 
-    for a neural network model and then calculates the change in loss 
-    compared to the baseline model with no perturbations. It acts as a 
-    proxy for the importance of elements in the data vector. A higher 
-    increase in loss corresponds to greater importance.
-
-    Parameters
-    ----------
-    gene : list of str
-        List of gene names.
-    model_path : list of str
-        List of paths of saved PyTorch models for each gene.
-    X : list of Numpy ndarray
-        List of data for each gene.
-    y : list of Numpy ndarray
-        List of training labels for each gene.
-    num_snps : list of int
-        Number of SNPs in each gene.  
-    class_weights : list of Numpy ndarray
-        List of class weights for each gene for the loss function.
-    columns : List of lists
-        List of column headers for the data (SNPs, age, etc.) in each 
-        gene.
-    device : str
-        Device for inference (eg: 'cuda:0').
-    folder : str
-        Base folder for saving generated plots.
-    prefix : str
-        Prefix to add to the file name while saving the plots.
-    
-    """
-    mat = []
-    gs = []
-    for i, g in enumerate(gene):
-        # g = '_'.join(gene_set)
-        gs.append(g)
-        print('\t\t Perturbation for {}'.format(g))
-
-        colsg = columns[i]
-        modelg = torch.load(model_path[i])
-        loss_fng = nn.CrossEntropyLoss(torch.tensor(class_weights[i]).float())
-        Xg = X[i]
-        yg = y[i]
-        yg = torch.from_numpy(yg).long()
-
-        Xg_shape = Xg.shape
-        Xg = np.reshape(Xg, (Xg.shape[0], -1))
-        np.random.seed(725)
-        noise_vec = np.random.normal(0, 1, Xg.shape[0])
-        
-        accs = []
-        
-        for j, inp in enumerate([None, ]+colsg):
-            Xg_ = Xg.copy()
-            if j >= num_snps[i]:
-                for k in range(-12, 0, -1):
-                    Xg_[:, k] = noise_vec
-            else:
-                for k in range(0, num_snps[i]):
-                    Xg_[:, k] = noise_vec
-
-            Xg_ = np.reshape(Xg_, Xg_shape)
-            Xg_ = torch.from_numpy(Xg_).float()
-
-            _, conf_mat, loss = infer(Xg_, yg, modelg, loss_fng, device, 
-                class_weights=class_weights[i], batch_size=1024)
-            _, _, _, acc, _ = metrics_from_conf_mat(conf_mat[0])
-            accs.append(acc)
-
-        mat.append(np.array(accs)[[1, -2]]-accs[0])
-        # fig, ax = plt.subplots()
-        # ax.scatter(colsg, np.array(accs)[1:]-accs[0], s=4)
-        # ax.axvline(num_snps[i]-0.5, linestyle=':', c='g', alpha=0.5)
-        # ax.axhline(0, linestyle=':', c='r', alpha=0.5)
-        # ax.set_xticklabels([])
-        # fig.savefig('{}/{}_{}.svg'.format(folder, prefix, g))
-    
-    fig, ax = plt.subplots()
-    mat = np.asarray(mat)
-    mat = (mat - np.mean(mat))/np.std(mat)
-    img = ax.imshow(mat.T, cmap='Reds', origin='lower', vmin=0)
-    # ax.axvline(num_snps[i]-0.5, linestyle=':', c='g', alpha=0.5)
-    # ax.axhline(0, linestyle=':', c='r', alpha=0.5)
-    ax.set_xticks(np.arange(len(gs)))
-    ax.set_xticklabels(gs, {'fontsize': 6})
-    ax.set_yticks(np.arange(2))
-    ax.set_yticklabels(['SNPs', 'PCs'], {'fontsize': 6})
-    # ax.set_xticks(np.arange(12))
-    # ax.set_xticklabels(['Sex', 'Age', 'PC1', 'PC2', 'PC3', 'PC4', 'PC5', 
-    #     'PC6', 'PC7', 'PC8', 'PC9', 'PC10'], {'fontsize': 6})
-    plt.colorbar(img)
-    fig.savefig('{}/{}2_perturbation.svg'.format(folder, prefix, g))
-
-def gradient_plot(gene, model_path, X, y, num_snps, class_weights, 
-                        columns, num_covs, device, folder, prefix):
-    """
-    Function that perturbs each input in the data vector (one at a time) 
-    for a neural network model and then calculates the change in loss 
-    compared to the baseline model with no perturbations. It acts as a 
-    proxy for the importance of elements in the data vector. A higher 
-    increase in loss corresponds to greater importance.
-
-    Parameters
-    ----------
-    gene : list of str
-        List of gene names.
-    model_path : list of str
-        List of paths of saved PyTorch models for each gene.
-    X : list of Numpy ndarray
-        List of data for each gene.
-    y : list of Numpy ndarray
-        List of training labels for each gene.
-    num_snps : list of int
-        Number of SNPs in each gene.  
-    class_weights : list of Numpy ndarray
-        List of class weights for each gene for the loss function.
-    columns : List of lists
-        List of column headers for the data (SNPs, age, etc.) in each 
-        gene.
-    device : str
-        Device for inference (eg: 'cuda:0').
-    folder : str
-        Base folder for saving generated plots.
-    prefix : str
-        Prefix to add to the file name while saving the plots.
-    
-    """
-    if os.path.isfile('{}/{}_grads.svg'.format(folder, prefix)):
-        return
-
-    gs = []
-    grads = np.ones((len(gene), max(num_snps)+num_covs))*-2
-    sort_inds = np.ones((len(gene), max(num_snps)+num_covs))*np.nan
-    # grads = np.ones((len(gene), 7))
-    device = torch.device(device)
-    min_val = 100
-    max_val = -100
-    
-    for i, g in tqdm.tqdm(enumerate(gene)):
-        gs.append(g)
-        vprint('\t\t Gradients for {}'.format(g))
-        
-        snpsg = num_snps[i]
-        colsg = columns[i]
-        
-        try:
-            modelg = torch.load(model_path[i], map_location=device)
-        except FileNotFoundError:
-            print('Issue with ', model_path[i])
-            continue
-        cwg = torch.tensor(class_weights[i], device=device).float()
-        loss_fng = nn.CrossEntropyLoss()
-        Xg = torch.from_numpy(X[i]).float().to(device)
-        Xg.requires_grad = True
-        yg = torch.from_numpy(y[i]).long().to(device)
-        
-        modelg.eval()
-        raw_out = modelg(Xg)
-        loss = loss_fng(raw_out, yg)
-        first_layer_weights = next(modelg.parameters())
-        # for p in modelg.named_parameters():
-        #     print(p[0], p[1].shape, p[1].requires_grad)
-        
-        grad = torch.autograd.grad(loss, Xg, 
-            create_graph=True)
-        
-        for gr in grad:
-            gr = torch.abs(gr)
-            gr = torch.mean(torch.mean(gr, axis=0), axis=0)
-            gr = (gr - torch.min(gr))/(torch.max(gr)-torch.min(gr))
-            row = np.repeat(np.flip(gr.detach().cpu().numpy()), 1)
-            min_val = min(min_val, np.min(row))
-            max_val = max(max_val, np.max(row))
-            sort_ind = np.arange(0, len(row))
-            sort_ind[num_covs:] = np.flip(np.argsort(row[num_covs:])) - num_covs
-            row[num_covs:] = np.flip(np.sort(row[num_covs:]))
-            grads[i, :len(row)] = row
-            sort_inds[i, :len(row)] = sort_ind
-    
-    grads = np.asarray(grads)[:, :num_covs+50].T
-    cmap = copy.copy(plt.get_cmap('coolwarm'))
-    cmap.set_under(alpha=0)
-    plt.imshow(grads, cmap=cmap, origin='lower', vmin=0, vmax=1)
-    plt.xticks(np.arange(len(gs)), gs, fontsize=2, rotation=90)
-    # plt.yticks(np.arange(0, grads.shape[0], 1), columns[0][-12:-5], fontsize=4)
-    plt.gca().axhline(num_covs-0.5, c='k', linestyle=':', linewidth=1)
-    plt.title(prefix)
-    plt.tight_layout()
-    plt.savefig('{}/{}_grads.svg'.format(folder, prefix))
-    plt.close()
-
-    return grads, sort_inds
-
-def gradient_pair_plot(gene, pval, model_path, X, y, num_snps, class_weights, 
-                        columns, num_covs, device, folder, prefix):
-    """
-    Function that perturbs each input in the data vector (one at a time) 
-    for a neural network model and then calculates the change in loss 
-    compared to the baseline model with no perturbations. It acts as a 
-    proxy for the importance of elements in the data vector. A higher 
-    increase in loss corresponds to greater importance.
-
-    Parameters
-    ----------
-    gene : list of str
-        List of gene names.
-    model_path : list of str
-        List of paths of saved PyTorch models for each gene.
-    X : list of Numpy ndarray
-        List of data for each gene.
-    y : list of Numpy ndarray
-        List of training labels for each gene.
-    num_snps : list of int
-        Number of SNPs in each gene.  
-    class_weights : list of Numpy ndarray
-        List of class weights for each gene for the loss function.
-    columns : List of lists
-        List of column headers for the data (SNPs, age, etc.) in each 
-        gene.
-    device : str
-        Device for inference (eg: 'cuda:0').
-    folder : str
-        Base folder for saving generated plots.
-    prefix : str
-        Prefix to add to the file name while saving the plots.
-    
-    """
-    gs = []
-    grads = np.ones((len(gene), max(num_snps)+num_covs))*-2
-    # grads = np.ones((len(gene), 7))
-    device = torch.device(device)
-    for i, g in enumerate(gene):
-        gs.append(g)
-        print('\t\t Gradients for {}'.format(g))
-        
-        snpsg = num_snps[i]
-        colsg = columns[i]
-        gfold = '/'.join(model_path[i].split('/')[:-1])
-        print(gfold)
-        try:
-            modelg = torch.load(model_path[i], map_location=device)
-        except FileNotFoundError:
-            print('Issue with ', model_path[i])
-            continue
-        cwg = torch.tensor(class_weights[i], device=device).float()
-        loss_fng = nn.CrossEntropyLoss()
-        Xg = torch.from_numpy(X[i]).float().to(device)
-        Xg.requires_grad = True
-        yg = torch.from_numpy(y[i]).long().to(device)
-        
-        modelg.eval()
-        raw_out = modelg(Xg)
-        loss = loss_fng(raw_out, yg)
-        first_layer_weights = next(modelg.parameters())
-        
-        grad = torch.autograd.grad(loss, Xg, 
-            create_graph=True, retain_graph=True)
-        
-        gr = grad[0]
-        gr = torch.mean(torch.mean(gr, axis=0), axis=0)
-
-        grad_mat = np.ones((len(gr), len(gr)))
-        for gi in range(len(gr)):
-            gr2 = torch.autograd.grad(gr[gi], Xg, retain_graph=True)[0]
-            gr2 = torch.abs(gr2)
-            gr2 = torch.mean(torch.mean(gr2, axis=0), axis=0)
-            grad_mat[gi] = gr2.detach().cpu().numpy()
-            grad_mat[gi, gi] = 0
-            
-        min_val = np.min(grad_mat)
-        max_val = np.max(grad_mat)
-        grad_mat = (grad_mat - min_val)/(max_val - min_val)
-        grad_mat = np.triu(grad_mat)
-        grad_mat = np.where(grad_mat!=0, grad_mat, np.ones(grad_mat.shape)*-1)
-        grad_mat = np.where(grad_mat>=0.5, grad_mat, np.ones(grad_mat.shape)*-1)
-            
-        cmap = plt.get_cmap('bwr')
-        cmap.set_under(alpha=0)
-        plt.imshow(grad_mat, cmap=cmap, origin='lower', vmin=0, vmax=1)
-        # plt.xticks(np.arange(len(gs)), gs, fontsize=2, rotation=90)
-        # plt.yticks(np.arange(0, grads.shape[0], 1), columns[0][-12:-5], fontsize=4)
-        plt.gca().yaxis.tick_right()
-        plt.gca().axhline(len(grad_mat)-num_covs-0.5, c='lime', linestyle=':', 
-            linewidth=2)
-        plt.gca().axvline(len(grad_mat)-num_covs-0.5, c='lime', linestyle=':', 
-            linewidth=2)
-        plt.title('{} (p = {:.3e})'.format(g, pval[i]))
-        plt.tight_layout()
-        np.savez('{}/gradmats.npz'.format(gfold), grad_mat=grad_mat, 
-            snps=colsg[:snpsg])
-        plt.savefig('{}/gradmats.svg'.format(gfold))
-        plt.close()
-
-def epistasis_proxy(model_path, data, label, snps, gene, device, log, prefix):
-    """
-    Function that perturbs SNPs pairwise for a and then calculates the 
-    change in loss compared to the baseline model with no perturbations. 
-    It acts as a proxy for the importance of SNP interactions. A higher 
-    increase in loss corresponds to greater importance. Finally 
-    generates 2D heatplots representing interaction.
-
-    Parameters
-    ----------
-    model_path: list of str
-        List of paths of saved PyTorch models for each gene.
-    data: list of Pandas DataFrame
-        List of datasets for each gene.
-    label: list of Numpy ndarray
-        List of training labels for each gene.
-    snps: list of tuples
-        List of tuples of the form (num_snps, first_gene_snp, 
-        last_gene_snp). The first_gene_snp and last_gene_snp are the 
-        indices of the first and last snp on the gene. Useful to mark 
-        the gene region on the plot, when flanking sequences on each 
-        side of the gene are used (eg: 2500bp - APOE - 2500bp).
-    gene: list of str
-        List of gene names.
-    device: str
-        Device to train model on (eg: 'cuda:0').
-    log: str
-        Base folder for saving generated plots.
-    prefix: str
-        Prefix to add to the file name while saving the plots.
-
-    """
-
-    fname = '{}/{}_epistasis_{}.svg'.format(log, gene[0], prefix)
-    if os.path.isfile(fname):
-        return
-    
-    X = data[0]
-    y = label[0]
-    num_snps = snps[0][0]
-    model = torch.load(model_path[0])
-    model.to(torch.device(device))
-    inp_labels = X.columns
-    np.random.seed(8461)
-    noise_vector = np.random.normal(0,1,X.shape[0])
-    loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1.,1.]).cpu())
-
-    l = np.zeros((num_snps, num_snps))
-    a = np.zeros((num_snps, num_snps))
-
-    # Without perturbation
-    inp_data = torch.Tensor(X.copy().to_numpy()).to(torch.device(device))
-    labels = torch.Tensor(y.copy()).cpu()
-    model.eval()
-    raw_out = model.forward(inp_data)
-    y_pred = pred_from_raw(raw_out.detach().clone().cpu())
-    loss = loss_fn(raw_out.cpu(), labels.long())
-    _, _, _, acc, _ = metrics_from_raw(
-                labels.detach().clone().cpu(), y_pred)
-    l_mid = loss.item()
-    a_mid = acc
-    l_min = 100
-
-    for i in tqdm.tqdm(range(0, num_snps)):
-        for j in range(i, num_snps):
-            # Add noise to every input column individually
-            tmp = X.copy().to_numpy()
-            if i == j:
-                tmp[:, i] += noise_vector
-            else:
-                tmp[:, i] += noise_vector
-                tmp[:, j] += noise_vector
-
-            inp_data = torch.Tensor(tmp).to(torch.device(device))
-            labels = torch.Tensor(y).cpu()
-            
-            model.eval()
-            raw_out = model.forward(inp_data)
-            y_pred = pred_from_raw(raw_out.detach().clone().cpu())
-            loss = loss_fn(raw_out.cpu(), labels.long())
-
-            f, p, r, acc, mcc = metrics_from_raw(
-                labels.detach().clone().cpu(), y_pred)
-        
-            
-            a[i][j] = acc
-            l[i][j] = loss.item()
-            l[j][i] = loss.item()
-            l_min = min(l_min, l[j][i])
-
-            del(tmp)
-        
-    fig, ax = plt.subplots()
-    ax.axvline(snps[0][1]-0.5, c='k', linestyle=':')
-    ax.axvline(snps[0][2]+0.5, c='k', linestyle=':')
-    ax.axhline(snps[0][1]-0.5, c='k', linestyle=':')
-    ax.axhline(snps[0][2]+0.5, c='k', linestyle=':')
-    
-    for i in range(l.shape[0]):
-        for j in range(l.shape[1]):
-            if i == j:
-                continue
-            l_comb = l[i,j]
-            # print('{:.6f} {:.6f}'.format(
-            #   (0.68-l[i,j]), (1.36-l[i,i]-l[j,j])))
-            l[i,j] = l_comb - max(l[i,i], l[j,j])
-            # l[j,i] = l[i,j]
-    
-    for i in range(l.shape[0]):
-        for j in range(i, l.shape[0]):
-            if l[i,j] < 0:
-                l[i,j] = l[j,i] = 0
-        l[i,i] = 0
-    
-    cmap = cm.Reds
-    cmap.set_under(alpha=0)
-    # l = np.triu(l)
-    vmin = np.min(l)
-    print(vmin)
-    vmax = 0.0082
-    # l = np.tan(5*l)
-    # vmin = np.tan(5*-0.01)
-    # vmax = np.tan(5*0.01)
-    # heatmap = ax.imshow(l, cmap=cmap, origin='lower')
-    heatmap = ax.imshow(np.tril(l), cmap=cmap, origin='lower', vmin=1e-10)
-    
-    ticks = list(map(lambda x: x.split('_')[-1], inp_labels))
-    if num_snps <= 20:
-        lab_size = 8
-    elif num_snps <= 40:
-        lab_size = 6.5
-    elif num_snps <= 60:
-        lab_size = 5
-    else:
-        lab_size = 4
-
-    ax.tick_params(axis='y', rotation=45, labelsize=lab_size)
-    ax.set_yticks(np.arange(num_snps))
-    ax.set_yticklabels(ticks[:num_snps])
-
-    ax.tick_params(axis='x', rotation=90, labelsize=lab_size)
-    ax.set_xticks(np.arange(num_snps))
-    ax.set_xticklabels(ticks[:num_snps])
-    # ax.xaxis.tick_top()
-
-    fig.colorbar(mappable=heatmap)
-    fig.tight_layout()
-    fig.suptitle(gene[0]+': SNP-SNP Perturbation Loss Heatmap', fontsize=10)
-    fig.subplots_adjust(top=0.9)
-    fig.savefig(fname)
-    plt.close(fig)
-
-
 # Model construction and init functions
 def construct_model(model_type, **kwargs):
     """ Helper function to create an object of a model class with the
@@ -1025,7 +333,6 @@ def weight_init_linear(m):
         nn.init.ones_(m.weight.data)
         nn.init.zeros_(m.bias.data)
 
-
 # General Training functions
 def running_avg(old_avg:float, new_val:float, n:int) -> float:
     """Function to calculate the running average based on a new value,
@@ -1063,7 +370,8 @@ def pred_from_raw(raw_out:torch.tensor) -> torch.tensor:
     torch tensor
         Class predictions.
     """
-    pred = torch.argmax(torch.softmax(raw_out, dim=1), dim=1)
+    # pred = torch.argmax(torch.softmax(raw_out, dim=1), dim=1)
+    pred = torch.round(torch.sigmoid(raw_out)) 
     return pred
 
 def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor, 
@@ -1104,7 +412,7 @@ def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor,
     
     return (tn, fp, fn, tp)
 
-def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> tuple:
+def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> dict: 
     """Function to convert confusion matrix values into F1-score, 
     precision, recall, accuracy and MCC. Any value is that not
     computable for a metric due to division by 0 or a 0/0 computation 
@@ -1144,7 +452,7 @@ def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> tuple:
     if pos_pred and neg_pred and pos_obs and neg_obs:
         mcc = ((tp*tn) - (fp*fn))/np.sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn))
     
-    return f1, prec, rec, acc, mcc
+    return {'f1':f1, 'prec':prec, 'rec':rec, 'acc':acc, 'mcc':mcc}
 
 def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor, 
                    Xt:torch.tensor, yt:torch.tensor, training_dict:dict, 
@@ -1202,7 +510,8 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     train_sampler = BalancedBatchGroupSampler(train_dataset, 
                                               batch_size=batch_size, 
                                               grp_size=model.grp_size, 
-                                              random_seed=0)
+                                              random_seed=int(os.environ['GROUP_SEED']))
+    
     train_dataloader = DataLoader(dataset=train_dataset, 
                                   batch_sampler=train_sampler)
     
@@ -1216,7 +525,8 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     avg_loss = torch.zeros((epochs, 2))
     
     early_stopping = EarlyStopping(patience=early_stopping_thresh, 
-                                   save_path=f'{log}/{model_name}.pt')
+                                   save_path=f'{log}/{model_name}.pt', 
+                                   inc=False)
 
     current_lr = optimiser.state_dict()['param_groups'][0]['lr']
     best_state = model.state_dict()
@@ -1224,13 +534,14 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         
         # Train
         model.train()
+        # for _ in range(10):
         for bnum, sample in enumerate(train_dataloader):
             model.zero_grad()
             
             X_batch = sample[0].to(device)
-            y_batch = sample[1].long().to(device)
+            y_batch = sample[1][:, 0].float().to(device)
 
-            raw_out = model.forward(X_batch)
+            raw_out = model.forward(X_batch)[:, 0]
             # y_pred = pred_from_raw(raw_out.detach().clone())
             loss = loss_fn(raw_out, y_batch)
             loss.backward()
@@ -1245,7 +556,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
                 X_tensor, y_tensor, model, loss_fn, device)
             agg_conf_mat[epoch][si] += torch.as_tensor(conf_mat)
             avg_loss[epoch][si] = loss
-            _, _, _, acc, _ = metrics_from_conf_mat(agg_conf_mat[epoch][si])
+            acc = metrics_from_conf_mat(agg_conf_mat[epoch][si])['acc']
             avg_acc[epoch][si] = acc
         
         # If val acc plateaus or starts decreasing:
@@ -1257,25 +568,11 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             if new_lr < current_lr:
                 model.load_state_dict(best_state)
 
-        early_stopping(avg_acc[epoch][1], model, epoch)
+        early_stopping(avg_loss[epoch][1], model, epoch)
+        # early_stopping(avg_acc[epoch][1], model, epoch)
         if early_stopping.early_stop:
             best_state = model.state_dict()
             break
-
-        # if log is not None:
-        #     if best_val < avg_acc[epoch][1]:
-        #         best_val = avg_acc[epoch][1]
-        #         best_ep = epoch
-        #         best_state = model.state_dict()
-        #         torch.save(model, '{}/{}.pt'.format(log, model_name))
-                # print("[{:4d}] Train Acc: {:.3f} Val Acc: {:.3f}, \
-                #             Train Loss: {:.3f} Val Loss:{:.3f}".format(
-                #                 epoch, avg_acc[epoch][0], avg_acc[epoch][1], 
-                #                 avg_loss[epoch][0], avg_loss[epoch][1]))
-            
-            # if epoch%200 == 0 or (epoch == epochs-1):
-            #     torch.save(model, '{}/{}_Ep{}.pt'.format(log, model_name, epoch))
-    
 
     print('\n\n', model_name, ' BEST EPOCH ', early_stopping.best_epoch, '\n\n')
     
@@ -1390,13 +687,18 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     X, y = torch.tensor(X).float(), torch.tensor(y).long()
     X_test, y_test = torch.tensor(X_test).float(), torch.tensor(y_test).long()
     
-    if 'pretrained_model' in model_dict.keys():
-        model = torch.load(model_dict['pretrained_model'], 
-            map_location='cpu')
-    else:
-        model = construct_model(model_type, **model_args)
-        model.apply(weight_init_linear)
-    
+    model = construct_model(model_type, **model_args)
+    for named_module in model.named_modules():
+        if 'cov_model' in named_module[0]:
+            continue
+        weight_init_linear(named_module[1])
+
+    # Freeze covariate model weights
+    if 'cov_model' in model_args:
+        for param in model.named_parameters():
+            if 'cov_model' in param[0]:
+                param[1].requires_grad = False
+
     loss_fn, optimiser, scheduler = training_stuff(model=model, damping=damp, 
                                         class_weights=class_weights, lr=lr, 
                                         opt=optimiser)
@@ -1404,8 +706,8 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
         scheduler = None
 
     train_ind = np.arange(X.shape[0])
-    np.random.seed(6211)
-    np.random.shuffle(train_ind)
+    # np.random.seed(6211)
+    # np.random.shuffle(train_ind)
 
     training_dict = {
         'model_name': model_name,
@@ -1466,33 +768,36 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
     y_preds = []
     losses = []
     
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
     with torch.no_grad():
         dataset = GWASDataset(X_tensor, y_tensor)
         sampler = BalancedBatchGroupSampler(dataset=dataset, 
                                             batch_size=batch_size, 
                                             grp_size=model.grp_size,
-                                            random_seed=0)
+                                            random_seed=int(os.environ['GROUP_SEED']))
+        
         dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
-        y_pred = torch.tensor([], device=device).long()
-        loss = 0.0
         
         # Iterate over the dataset 10 times. In each epoch, the grouping
         # of samples will be different, so we will get an average
         # accuracy over multiple groupings.
+        y_pred = torch.tensor([], device=device).float()
+        y_target = torch.tensor([], device=device).float()
+        loss = 0.0
         bnum = 0
-        for _ in range(10):
+        for _ in range(1 if len(dataloader) > 1 else 20):
             for sample in dataloader:
                 X_batch = sample[0].to(device)
-                y_batch = sample[1].long().to(device)
+                y_batch = sample[1][:, 0].float().to(device)
                 
                 model.eval()
                 model = model.to(device)
                 loss_fn = loss_fn.to(device)
                 
-                raw_out = model.forward(X_batch)
+                raw_out = model.forward(X_batch)[:, 0]
                 y_pred = torch.cat(
                     (y_pred, pred_from_raw(raw_out.detach().clone())))
+                y_target = torch.cat((y_target, y_batch.detach().clone()))
                 batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
                 loss = running_avg(loss, batch_loss, bnum+1)
                 
@@ -1502,15 +807,12 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
                                         classes=[0, 1], 
                                         y=y_tensor.cpu().numpy())
         class_weights = torch.tensor(class_weights, device=device).float()
-        conf_mat = gen_conf_mat(y_tensor.detach().clone(), 
-            y_pred.to(y_tensor.device), class_weights=class_weights)
-        
-        y_preds = y_pred.cpu()
-        losses = loss
-        conf_mats = list(conf_mat)
-    torch.backends.cudnn.benchmark = False
+        conf_mat = gen_conf_mat(y_target.detach().clone(), y_pred, 
+                                class_weights=class_weights)
 
-    return y_preds, conf_mats, losses
+    # torch.backends.cudnn.benchmark = False
+
+    return  y_pred.cpu(), list(conf_mat), loss
 
 def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray, 
           model_dict:dict, optim_dict:dict, train_dict:dict, 
@@ -1554,7 +856,7 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     
     best_test_cm = conf_mat[best_ep, 1]
     metrics = metrics_from_conf_mat(best_test_cm)
-    best_test_acc = metrics[3]
+    best_test_acc = metrics['acc']
     best_test_loss = loss[best_ep, 1]
 
     gc.collect()
@@ -1562,157 +864,3 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
 
     return best_ep, best_test_acc, best_test_loss
 
-# Hyperparamter tuning/search functions
-def hyperparam_search(X, y, num_comb, class_weights, hyperparams, log, devices, 
-                        grid):
-    """
-    Function to run hyperparameter search for a gener and 
-    log metrics for each model.
-
-    Parameters:
-    ----------
-    X: numpy ndarray
-        Training data.
-    y: numpy ndarray
-        Training labels.
-    num_comb: int
-        Number of hyperparameter combinations to try.
-    hyperparams: dict
-        Dictionary containing different hyperparameter values.
-    log: str
-        File to log model metrics in.
-    devices: list of str
-        List of availaible CPUs/GPUs to run the different 
-        models on.
-    grid: bool
-        Grid search if True, random search if False.
-            
-    """
-
-    hidden = hyperparams['hidden']
-    dropout = hyperparams['dropout']
-    activ = hyperparams['activ']
-    lr = hyperparams['lr']
-    batch_size = hyperparams['batch_size']
-    optim = hyperparams['optim']
-    epochs = hyperparams['epochs']
-    f1_method = hyperparams['f1_method']
-    
-    done_combs = []
-    # Write csv file headers if the log file does not exist 
-    if not os.path.isfile(log):
-        with open(log, mode='w') as logfile:
-            wr = csv.writer(logfile)
-            wr.writerow(['hidden', 'dropout', 'activ', 'LR', 
-                        'Optim', 'Batch', 'Epochs', 'F1_meth',
-                        'train_f1', 'train_acc', 'train_loss',
-                        'val_f1', 'val_acc', 'val_loss'])
-    else:
-        with open(log, mode='r') as logfile:
-            r = csv.reader(logfile)
-            done_combs = list(r)[1:]
-        done_combs = [ast.literal_eval(x[0]) for x in done_combs]
-
-    splitter = StratifiedShuffleSplit(n_splits=1, 
-                                    test_size=0.1,
-                                    random_state=100)
-    num_devices = len(devices)
-    cnt = 0
-    func_args = []
-    hyps = []
-
-    # Implement random selection of hyperparameter combination
-    comb_all = list(it.product(hidden, dropout, activ, 
-                                lr, optim, batch_size, 
-                                epochs, f1_method))
-    if grid:
-        comb = comb_all
-    else:
-        np.random.seed(9721)
-        comb_ind = np.random.choice(
-            np.arange(0, len(comb_all)), num_comb, replace=False)
-        comb = [comb_all[i] for i in comb_ind]
-    
-
-    print('Total combinations: ', len(comb))
-    for ind, hyp in enumerate(comb):
-        if hyp[0] in done_combs:
-            print('Skipping {} because already done'.format(hyp[0]))
-            continue
-        
-        # Get copy of the data
-        X_ = X.copy()
-        y_ = y.copy()
-
-        # Model Parameters
-        model_dict = {}
-        model_dict['model_name'] = ''
-        model_dict['model_type'] = BasicNN
-        model_dict['model_args'] = {'inp':X_.shape[1],
-                                    'h':hyp[0],
-                                    'd':list(np.repeat(hyp[1], len(hyp[0]))),
-                                    'out':2,
-                                    'activation':hyp[2]
-                                    }
-        # Optimiser Parameters
-        optim_dict = {}
-        optim_dict['LR'] = hyp[3]
-        optim_dict['damping'] = 1.0
-        optim_dict['class_weights'] = class_weights
-        optim_dict['optim'] = hyp[4]
-        optim_dict['use_scheduler'] = False
-        # Training Parameters
-        train_dict = {}
-        train_dict['batch_size'] = hyp[5]
-        train_dict['epochs'] = hyp[6]
-        train_dict['f1_avg'] = hyp[7]
-        train_dict['log'] = None
-        
-        # Accumulate function arguments
-        if cnt < num_devices:
-            device = 'cuda:' + str(devices[ind%num_devices])
-            print('Device: {}  Combination: {}'.format(device, ind))
-            func_args.append((X_, y_, 
-                            None, None, 
-                            splitter, 
-                            train_val_loop, 
-                            model_dict, 
-                            optim_dict,
-                            train_dict,
-                            device,
-                            1))
-            cnt+=1
-            hyps.append(list(hyp))
-        
-        # Run function in parallel
-        if cnt == num_devices or ind+1 == len(comb):
-            with mp.Pool(num_devices) as pool:
-                results = pool.starmap(start_training, func_args, chunksize=1)
-                for rnum, r in enumerate(results):
-                    for key in ['train', 'val']:
-                        hyps[rnum].extend([r[0][key], r[1][key], r[2][key]])
-
-                    with open(log, mode='a') as logfile:
-                        wr = csv.writer(logfile)
-                        wr.writerow(hyps[rnum])
-                    
-                func_args = []
-                hyps = []
-                cnt = 0
-    
-def pick_best_model():
-    """Return a model dictionary with the best model architecture.
-
-    """
-
-    model_dict = {
-        'hidden': [128,64,16],
-        'drop': 0.3,
-        'optimiser': 'adam',
-        'activ': nn.ReLU,
-        'lr': 1e-3,
-        'batch': 128,
-        'epochs': 200,
-    }
-
-    return model_dict

@@ -161,8 +161,7 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
         'd':[0.5, 0.5, 0.5],
         'out':2,
         'activation':nn.ReLU,
-        'att_model':AttentionMask1, 
-        'att_activ':nn.Sigmoid
+        'att_model':AttentionMask1
     }
     hp_dict = {
         'optimiser': 'adam',

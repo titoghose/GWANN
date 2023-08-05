@@ -49,7 +49,8 @@ class FullModel(torch.nn.Module):
 class Experiment:
     def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
                  model:nn.Module, model_dict:dict, hp_dict:dict, 
-                 gpu_list:list, only_covs:bool, grp_size:int=10):
+                 gpu_list:list, only_covs:bool, cov_model_path:Optional[str]=None, 
+                 grp_size:int=10):
 
         # Experiment descriptive parameters
         self.prefix = prefix
@@ -79,6 +80,8 @@ class Experiment:
         self.summary_f = ''
         self.perms = 0
         self.perm_batch_size = 1024
+        self.cov_model_path = cov_model_path
+        self.cov_model = None
 
         self.__set_paths__()
 
@@ -124,16 +127,23 @@ class Experiment:
             hp_dict['lr'], 
             hp_dict['batch'], 
             hp_dict['optimiser'])
+        
         model_id = '{}_{}_{}_Dr_{}_{}'.format(
             self.prefix, 
             self.model.__name__, 
             '['+','.join([str(h) for h in self.model_params['h']])+']', 
             self.model_params['d'][0], 
             model_train_params)
+        
         model_dir = '{}/{}'.format(
             self.sys_params['LOGS_BASE_FOLDER'], 
             model_id)
         self.model_dir = model_dir
+        
+        if self.cov_model_path is not None:
+            self.cov_model = torch.load(self.cov_model_path, map_location='cpu')
+            self.cov_model.end_model.linears[-1] = Identity()
+        
         self.summary_f = '{}/{}_{}bp_summary.csv'.format(
                 self.model_dir, self.prefix, self.buffer)
         if not os.path.isdir(self.model_dir):
@@ -240,23 +250,7 @@ class Experiment:
         num_genes = len(genes['gene'])
         cnt = 0
         shared_gpu_stack = m.list(self.GPU_LIST)
-        # for gene_num, gene in enumerate(genes['gene']):
-        #     gdict = {k:genes[k][gene_num] for k in genes.keys()}
-        #     if cnt < len(self.GPU_LIST):
-        #         print(f'QUEUEING {gene} FOR TRAINING {cnt}')
-        #         device = self.GPU_LIST[cnt]
-        #         func_args.append((shared_gpu_idx, gdict, device, lock, True))
-        #         cnt+=1
-            
-        #     if cnt == len(self.GPU_LIST) or gene_num == num_genes-1:
-                
-        #         with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
-        #             pool.starmap(self.train_gene, func_args)
-        #             pool.close()
-        #             pool.join()
-        #         cnt = 0 
-        #         func_args = []                
-
+       
         for gene_num, gene in enumerate(genes['gene']):
             gdict = {k:genes[k][gene_num] for k in genes.keys()}
             # print(f'QUEUEING {gene} FOR TRAINING {cnt}')
@@ -300,9 +294,6 @@ class Experiment:
         print(f'Running {gene} on gpu: {device}')
 
         try:
-            # print(f'Hello, {gene} is running on {device}')
-            # tensor = torch.from_numpy(np.ones((1000, 1000))).to(device)
-            # time.sleep(np.random.randint(1, 5))
             # Load the data
             data_tuple = self.__gen_data__(gene_dict=gene_dict, 
                                            only_covs=self.only_covs)
@@ -316,14 +307,6 @@ class Experiment:
                 assert num_snps == 0
                 assert len(data_cols) == len(self.covs)
 
-            # if not self.only_covs:
-            #     X = np.concatenate(
-            #         (X[:, :, :num_snps], self.cov_encodings['train']), 
-            #         axis=-1)
-            #     X_test = np.concatenate(
-            #         (X_test[:, :, :num_snps], self.cov_encodings['test']), 
-            #         axis=-1)
-
             print(f'{gene:20} Group train data: {X.shape}')
             print(f'{gene:20} Group test data: {X_test.shape}')
             print(f'{gene:20} Class weights: {cw}')
@@ -331,8 +314,13 @@ class Experiment:
             # Model Parameters
             model_dict = {}
             model_dict['model_name'] = f'{num_snps}_{gene}'
-            self.model_params['snps'] = num_snps
-            self.model_params['covs'] = len(self.covs)
+            
+            if not self.only_covs:
+                self.model_params['snps'] = num_snps
+                self.model_params['cov_model'] = self.cov_model
+            else:
+                self.model_params['inp'] = len(self.covs)
+            
             model_dict['model_type'] = self.model
             model_dict['model_args'] = self.model_params
         

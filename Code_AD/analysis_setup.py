@@ -22,8 +22,8 @@ import pandas as pd
 import scipy.stats as stats
 from sklearn.model_selection import StratifiedShuffleSplit
 
-from GWANN.dataset_utils import (balance_by_agesex, create_data_for_run,
-                                 create_groups, group_ages, split)
+from GWANN.dataset_utils import (balance_by_agesex, create_groups, group_ages,
+                                 find_num_wins)
 from GWANN.utils import vprint
 
 
@@ -246,145 +246,29 @@ def find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) ->
         plt.savefig(f'{param_folder}/{k}_dist_{label}.png')
         plt.close()
 
-def _find_all_ids(param_folder:str, phen_cov_path:str, control_prop:float=1.0) -> None:
-    """From all possible indidividuals in the UKBB data, generate 1:1 
-    case:control split and save all ids to a file. Do this for Maternal
-    and Paternal histories.
+def num_wins_per_gene():
+    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv', 
+                      dtype={'chrom':str})
+    gdf['num_wins'] = 0
+    for chrom, idxs in gdf.groupby('chrom').groups.items():
+        if int(chrom)%2 != 0:
+            continue
+        cdf = gdf.loc[idxs].head(100)
+        pvar = pd.read_csv(f'/mnt/sdf/GWANN_pgen/UKB_chr{chrom}.pvar', 
+                           sep='\t', dtype={'#CHROM':str})
+        pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)
 
-    Parameters
-    ----------
-    param_folder : str
-        Path to the folder containing experiment parameters or the
-        folder where all additional parameter files should be saved.
-    phen_cov_path : str
-        Path to the file containing the covariates and phenotype
-        information for all individuals in the cohort.
-    """
+        fargs = list(cdf[['chrom', 'start', 'end']].itertuples(index=False, name=None))
+        wins_cnt_func = partial(find_num_wins, pgen_data=pvar.loc[pvar['CHROM'] == chrom], 
+                                win_size=50)
+        with mp.Pool(20) as pool:
+            cnts = pool.starmap(wins_cnt_func, fargs, chunksize=1)
+            pool.close()
+            pool.join()
+        cdf['num_wins'] = cnts
+        print(cdf.head())
+        print()
     
-    with open(f'{param_folder}/covs_MATERNAL_MARIONI.yaml', 'r') as f:
-        covs = yaml.load(f, yaml.FullLoader)['COVARIATES']
-
-    geno_id_path = 'params/geno_ids.csv'.format(param_folder)
-    geno_ids = pd.read_csv(geno_id_path)['ID1'].values
-
-    ad_diag_path = 'params/AD_Diagnosis.csv'.format(param_folder)
-    ad_diag = pd.read_csv(ad_diag_path)['ID1'].to_list()
-    extended_AD_ids = pd.read_csv(
-        './params/UKB_AD_inc_c.sample', sep='\t').iloc[1:,:]
-    extended_AD_ids = extended_AD_ids.loc[extended_AD_ids['phenotype']==1]['ID_1'].to_list()
-    ad_diag = ad_diag + list(set(extended_AD_ids))
-    print(f'Num of AD diagnosed: {len(ad_diag)}')
-
-    neuro_diag_path = 'params/Neuro_Diagnosis.csv'.format(param_folder)
-    neuro_diag = pd.read_csv(neuro_diag_path)['ID_1'].values
-    
-    ukb_withdrawn_ids = pd.read_csv(
-            'params/ukb_withdrawn_04May23.csv')['ID_1'].to_list()
-
-    df = pd.read_csv(phen_cov_path, sep=' ', comment='#')
-    df.drop_duplicates('ID_1', inplace=True)
-    df.set_index('ID_1', drop=False, inplace=True)
-    df = df.loc[df.index.isin(geno_ids)]
-    df = df.loc[~df.index.isin(ukb_withdrawn_ids)]
-    print('Shape after retaining only those iids in genotype file: {}'.format(df.shape))
-
-    # Remove people with AD diagnosis but in the FH control set and add
-    # them to the maternal and paternal cases
-    df.loc[df.index.isin(ad_diag), 'MATERNAL_MARIONI'] = 1
-    df.loc[df.index.isin(ad_diag), 'PATERNAL_MARIONI'] = 1
-    # df = df.loc[~(df.index.isin(ad_diag) & 
-    #     ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
-    
-    df.dropna(subset=covs, inplace=True)
-    print('Shape after dropping missing covariates: {}'.format(df.shape))
-    
-    old_len = df.shape[0]
-    df = df.loc[~(df.index.isin(neuro_diag) & 
-        ((df['MATERNAL_MARIONI'] == 0) | (df['PATERNAL_MARIONI'] == 0)))]
-    new_len = df.shape[0]
-    print('Number of Neuro diagnosed removed: {}'.format(old_len-new_len))
-    
-    # Group ages
-    new_ages = group_ages(df['f.21003.0.0'].values, 3)
-    df['old_ages'] = df['f.21003.0.0'].values
-    df['f.21003.0.0'] = new_ages
-    print('Number of unique age groups: {}'.format(
-        np.unique(df['f.21003.0.0'].values)))
-
-    df.loc[(df['PATERNAL_MARIONI'].isin([0, 1])) | 
-           (df['MATERNAL_MARIONI'].isin([0, 1]))][['ID_1', 'MATERNAL_MARIONI', 'PATERNAL_MARIONI']].to_csv('params/all_valid_iids.csv', index=False)
-
-    # Ensure that MATERNAL_MARIONI dataset is created first
-    for label in ['MATERNAL_MARIONI', 'PATERNAL_MARIONI']:
-        print('\nTrain-test split for: {}'.format(label))
-        all_ids_path = '{}/all_ids_{}.csv'.format(param_folder, label)
-        train_ids_path = '{}/train_ids_{}.csv'.format(param_folder, label)
-        test_ids_path = '{}/test_ids_{}.csv'.format(param_folder, label)
-        
-        lab_df = df.copy()
-        if label == 'PATERNAL_MARIONI':
-            lab_df = lab_df.loc[~(
-                (lab_df['PATERNAL_MARIONI'] == 0) & 
-                (lab_df['MATERNAL_MARIONI'] == 1))]
-        else:
-            lab_df = lab_df.loc[~(
-                (lab_df['MATERNAL_MARIONI'] == 0) & 
-                (lab_df['PATERNAL_MARIONI'] == 1))]
-
-        lab_df = lab_df.loc[lab_df[label].isin([0, 1])]
-
-        # Get controls balanced by age and sex
-        b_df = balance_by_agesex(lab_df, label, control_prop=control_prop)
-        print('Final df size, cases, controls: {} {} {} {}'.format(
-            b_df.shape[0], 
-            b_df.loc[b_df[label] == 1].shape[0],
-            b_df.loc[b_df[label] == 0].shape[0],
-            b_df.loc[b_df[label].isna()].shape[0]))
-        b_df = b_df.rename(columns={'ID_1':'iid'})
-        b_df[['iid', label]].to_csv(all_ids_path, index=False)
-        
-        sss = StratifiedShuffleSplit(1, test_size=0.15, random_state=1933)
-        for tr, te in sss.split(b_df.values, b_df[label].values):
-            test_df = b_df.iloc[te]
-            train_df = b_df.iloc[tr]
-        
-        print('Final train_df size, cases, controls: {} {} {}'.format(
-            train_df.shape[0], 
-            train_df.loc[train_df[label] == 1].shape[0],
-            train_df.loc[train_df[label] == 0].shape[0]))
-
-        print('Final test_df size, cases, controls: {} {} {}'.format(
-            test_df.shape[0], 
-            test_df.loc[test_df[label] == 1].shape[0],
-            test_df.loc[test_df[label] == 0].shape[0]))
-
-        test_df = test_df.rename(columns={'ID_1':'iid'})
-        test_df[['iid', label]].to_csv(test_ids_path, index=False)
-        
-        train_df = train_df.rename(columns={'ID_1':'iid'})
-        train_df[['iid', label]].to_csv(train_ids_path, index=False)
-        
-        for k, v in {'ages':'old_ages', 'sex':'f.31.0.0'}.items():
-            D, p = stats.ks_2samp(train_df[v], test_df[v])
-            print(f"Test and train {k} KS test: p={p}")
-            
-            D, p = stats.ks_2samp(train_df.loc[train_df[label]==0][v], 
-                                  train_df.loc[train_df[label]==1][v])
-            print(f"Train case vs control {k} KS test: p={p}")
-            
-            D, p = stats.ks_2samp(test_df.loc[test_df[label]==0][v], 
-                                  test_df.loc[test_df[label]==1][v])
-            print(f"Test case vs control {k} KS test: p={p}")
-            
-            train_df['type'] = 'train'
-            test_df['type'] = 'test'
-            comb_df = pd.concat((train_df, test_df))
-            g = sns.displot(data=comb_df, x=v, col='type', hue=label, 
-                        kind='hist', common_bins=True, common_norm=False, 
-                        stat='density', alpha=0.5)
-            g.add_legend()
-            plt.savefig(f'{param_folder}/{k}_dist_{label}.png')
-            plt.close()
 
 def dosage_percentage():
     base = '/home/upamanyu/GWANN_data/Data_MatAD/wins'
@@ -405,10 +289,10 @@ def dosage_percentage():
 if __name__ == '__main__':
     
     # 1. Find all train and test ids
-    find_all_ids(
-        param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7', 
-        phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-        control_prop=1.0)
+    # find_all_ids(
+    #     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7', 
+    #     phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+    #     control_prop=1.0)
 
     # Cell Reports reviewer rerun
     # filter_ids(
@@ -423,3 +307,4 @@ if __name__ == '__main__':
     #         phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
     #         grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
     #     )
+    num_wins_per_gene()

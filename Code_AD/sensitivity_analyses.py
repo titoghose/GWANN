@@ -443,7 +443,7 @@ def sensitivity_6():
                 #             grp_size=grp_size)
         # break
 
-def sensitivity_7():
+def sensitivity_7(chroms):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
     
     with open('params/gene_subsets.yaml', 'r') as f:
@@ -457,7 +457,7 @@ def sensitivity_7():
     gpu_list = list(np.tile([5, 6, 7, 8, 9], 4))
 
     # Ceate data
-    # for label in ['MATERNAL_MARIONI']:
+    for label in ['FH_AD']:
         # for chrom, idx in gdf.groupby('chrom').groups.items():
         #     if str(chrom) not in chroms:
         #         continue
@@ -465,55 +465,55 @@ def sensitivity_7():
         #     print(chrom, len(gl))
         #     print(gl)
         #     run_genes.create_csv_data(label=label, param_folder=param_folder, 
-        #                               chrom=str(chrom), glist=gl, split=True)
-        # run_genes.create_csv_data(label=label, param_folder=param_folder, 
-        #                               chrom=str(1), glist=glist, split=True, 
-        #                               num_procs=103)
+        #                               chrom=str(chrom), glist=gl, split=False)
+        run_genes.create_csv_data(label=label, param_folder=param_folder, 
+                                      chrom=str(1), glist=glist, split=True, 
+                                      num_procs=80)
 
-    for label in ['AD_FH']:
-        with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
-            sys_params = yaml.load(f, Loader=yaml.FullLoader)
+    # for label in ['AD_FH']:
+    #     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
+    #         sys_params = yaml.load(f, Loader=yaml.FullLoader)
             
-        grp_size = 20
-        for oversample in [20]:
-            for si, seed in enumerate([192]):
-                exp_name = f'Sens6.1'
-                grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
+    #     grp_size = 20
+    #     for oversample in [20]:
+    #         for si, seed in enumerate([192]):
+    #             exp_name = f'Sens6.1'
+    #             grp_id_path = f'{param_folder}/{exp_name}_group_ids_{label}.npz'
                 
-                create_groups(
-                    label=label,
-                    param_folder=param_folder, 
-                    phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
-                    grp_size=grp_size, oversample=oversample,
-                    random_seed=seed, grp_id_path=grp_id_path
-                )
+    #             create_groups(
+    #                 label=label,
+    #                 param_folder=param_folder, 
+    #                 phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
+    #                 grp_size=grp_size, oversample=oversample,
+    #                 random_seed=seed, grp_id_path=grp_id_path
+    #             )
 
-                sys_params['GROUP_IDS_PATH'] = grp_id_path
-                sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
-                sys_params['PARAMS_PATH'] = param_folder
+    #             sys_params['GROUP_IDS_PATH'] = grp_id_path
+    #             sys_params['COV_ENC_PATH'] = f'{param_folder}/{exp_name}_cov_encodings_{label}.npz'
+    #             sys_params['PARAMS_PATH'] = param_folder
 
-                with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
-                    yaml.dump(sys_params, f)
+    #             with open('{}/params_{}.yaml'.format(param_folder, label), 'w') as f:
+    #                 yaml.dump(sys_params, f)
                     
-                # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
-                # cov_model.model_pipeline(label=label, param_folder=param_folder,
-                #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
-                #                          grp_size=grp_size)
-                # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
-                #                          device=gpu_list[0], exp_name=exp_name)
+    #             # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
+    #             # cov_model.model_pipeline(label=label, param_folder=param_folder,
+    #             #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
+    #             #                          grp_size=grp_size)
+    #             # cov_model.gen_cov_encodings(label=label, param_folder=param_folder,
+    #             #                          device=gpu_list[0], exp_name=exp_name)
                 
-                run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                            param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=True)
+    #             run_genes.model_pipeline(exp_name=exp_name, label=label, 
+    #                         param_folder=param_folder, gpu_list=gpu_list,
+    #                         glist=glist, grp_size=grp_size, shap_plots=True)
                 
-                # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
-                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list, 
-                #             grp_size=grp_size)
-        # break
+    #             # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
+    #             # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+    #             #             param_folder=param_folder, gpu_list=gpu_list, 
+    #             #             grp_size=grp_size)
+    #     # break
 
 if __name__ == '__main__':
-    # chroms = sys.argv[1].split(',')
+    chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
     # sensitivity_1_3(chroms)
     # sensitivity_1_4(chroms)
@@ -524,4 +524,4 @@ if __name__ == '__main__':
     # sensitivity_3()
     # sensitivity_4()
     # sensitivity_5()
-    sensitivity_6()
+    sensitivity_7(chroms)

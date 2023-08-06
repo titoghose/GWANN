@@ -151,10 +151,15 @@ class Experiment:
     
     def __set_genotypes_and_covariates__(self, chrom:str) -> None:
         pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
-        train_ids = pd.read_csv(self.sys_params["TRAIN_IDS_PATH"], 
-                                dtype={'iid':str})['iid'].to_list()
-        test_ids = pd.read_csv(self.sys_params["TEST_IDS_PATH"],
-                            dtype={'iid':str})['iid'].to_list()
+        
+        test_ids_f = f'{self.sys_params["PARAMS_PATH"]}/test_ids_{self.label}.csv'
+        test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
+        test_ids = test_ids_df['iid'].to_list()
+    
+        train_ids_f = f'{self.sys_params["PARAMS_PATH"]}/train_ids_{self.label}.csv'
+        train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+        train_ids = train_ids_df['iid'].to_list()
+        
         self.pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=train_ids+test_ids)
         
         self.phen_cov = pd.read_csv(self.sys_params['PHEN_COV_PATH'], 
@@ -196,18 +201,13 @@ class Experiment:
         end = gene_dict['end'] if 'end' in gene_dict else None
         win = gene_dict['win'] if 'win' in gene_dict else None
 
-        if win is None:
-            data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
-                         chrom=chrom, start=start, end=end, buffer=self.buffer, 
-                         label=self.label, sys_params=self.sys_params, 
-                         covs=self.covs, SNP_thresh=self.SNP_THRESH, 
-                         only_covs=only_covs, lock=None)
-        else:
-            data = load_win_data(gene=gene, win=win, chrom=chrom, 
-                        buffer=self.buffer, label=self.label, 
-                        sys_params=self.sys_params, covs=self.covs, 
-                        only_covs=only_covs)
-            
+        self.__set_genotypes_and_covariates__(chrom=chrom)
+        data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+                        chrom=chrom, start=start, end=end, buffer=self.buffer, 
+                        label=self.label, sys_params=self.sys_params, 
+                        covs=self.covs, win=win, save_data=False, 
+                        SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+                        lock=None)
         return data
 
     def __load_cov_encodings__(self) -> Optional[dict]:
@@ -248,22 +248,19 @@ class Experiment:
         lock = m.Lock()
         func_args = []
         num_genes = len(genes['gene'])
-        cnt = 0
         shared_gpu_stack = m.list(self.GPU_LIST)
        
-        for gene_num, gene in enumerate(genes['gene']):
+        for gene_num in range(num_genes):
             gdict = {k:genes[k][gene_num] for k in genes.keys()}
-            # print(f'QUEUEING {gene} FOR TRAINING {cnt}')
-            device = self.GPU_LIST[cnt]
-            func_args.append((shared_gpu_stack, gdict, device, lock, True))
+            func_args.append((shared_gpu_stack, gdict, lock, True, None))
             
         with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
             pool.starmap_async(self.train_gene, func_args, chunksize=1)
             pool.close()
             pool.join()
         
-    def train_gene(self, shared_gpu_stack:list, gene_dict:dict, device:Union[str, int], 
-                   lock:mp.Lock, log:bool=True) -> None:
+    def train_gene(self, shared_gpu_stack:list, gene_dict:dict, lock:mp.Lock, 
+                   log:bool=True, device:Optional[Union[str, int]]=None) -> None:
         """Setup and run the NN training for a given gene. It also
         invokes the permutation test after training.
 

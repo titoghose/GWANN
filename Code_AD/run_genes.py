@@ -75,7 +75,7 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, glist:list=None, grp_size:int=10, 
+                   gpu_list:list, glist:list, grp_size:int=10, 
                    shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
@@ -127,25 +127,21 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
                      cov_model_path=cov_model_path, grp_size=grp_size)
     
     if not shap_plots:
-        gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
-        gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
-        
-        if glist is not None:
-            paths = []
-            for gwp in gene_win_paths:
-                if gwp.split('_')[1] in glist:
-                    paths.append(gwp)
-            gene_win_paths = paths
-        
-        gene_win_paths = list(set(gene_win_paths))
-        gene_win_paths = [gwp for gwp in gene_win_paths if 'Dummy' not in gwp]
-        gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
-        gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
-        gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
-        gene_win_df['win'] = [int(p.split('_')[2]) for p in gene_win_paths]
-        gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
-        gene_win_df.sort_values(['gene', 'win', 'win_count'], 
-                                ascending=[True, True, False], inplace=True)
+        gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
+        gdf.set_index('symbol', inplace=True)
+        gdf = gdf.loc[glist]
+        gene_win_dict = {'chrom':[], 'gene':[], 'win':[], 'start':[], 'end':[]}
+        for g, grow in gdf.iterrows():
+            wins = list(range(grow['num_wins']))
+            gene_win_dict['chrom'].extend([grow['chrom']]*len(wins))
+            gene_win_dict['gene'].extend([g]*len(wins))
+            gene_win_dict['win'].extend(wins)
+            gene_win_dict['start'].extend([grow['start']]*len(wins))
+            gene_win_dict['end'].extend([grow['end']]*len(wins))
+
+        gene_win_df = pd.DataFrame.from_dict(gene_win_dict)
+        gene_win_df.sort_values(['gene', 'win'], ascending=[True, True], 
+                                inplace=True)
         gene_win_df.drop_duplicates(['gene', 'win'], inplace=True)
         
         print(f'Number of gene win data files found: {gene_win_df.shape[0]}')
@@ -159,11 +155,10 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
             
         print(f'Number of genes left to train: {gene_win_df.shape[0]}')
         
-        genes = {'gene':[], 'chrom':[], 'win':[]}
-        genes['gene'] = gene_win_df['gene'].to_list()
-        genes['chrom'] = gene_win_df['chrom'].to_list()
-        genes['win'] = gene_win_df['win'].to_list()
-        
+        genes = gene_win_df.to_dict(orient='list')
+
+        # X, y, X_test, y_test, cw, data_cols, num_snps = exp.__gen_data__({k:v[-1] for k,v in genes.items()})
+        # print(data_cols)
         exp.parallel_run(genes=genes)
 
     if shap_plots:
@@ -180,6 +175,13 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     e = datetime.datetime.now()
     print('\n\n', (e-s))
 
+def get_chrom_glist(chrom:str) -> list:
+    gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
+    gdf.set_index('symbol', inplace=True)
+    gdf = gdf.loc[gdf['chrom'] == chrom]
+    gdf = gdf.loc[gdf['num_wins'] > 0]
+    return gdf.index.to_list()
+    
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -189,12 +191,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
     label = args.label
     chrom = args.chrom
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
-
-    # Create data 
-    create_csv_data(label=label, param_folder=param_folder, chrom=chrom)
-
+    
     # Run model training pipeline
-    gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
-    model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
+    gpu_list = list(np.tile([9, 8, 7, 6, 5], 4))
+    grp_size = 10
+    torch_seed=int(os.environ['TORCH_SEED'])
+    random_seed=int(os.environ['GROUP_SEED'])
+    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    # glist = get_chrom_glist(chrom)
+    glist = ['BIN1']
+    model_pipeline(exp_name=exp_name, label=label, 
+                   param_folder=param_folder, 
+                   gpu_list=gpu_list, glist=glist, 
+                   grp_size=grp_size, shap_plots=False)
     

@@ -46,10 +46,12 @@ class PGEN2Pandas:
                 print(f'Following samples not in pgen file:'+
                     f'{set(sample_subset).difference(set(self.psam["IID"].to_list()))}')
         self.psam.sort_index(inplace=True)
+        self.psam.drop_duplicates(inplace=True)
         
         self.pvar = pd.read_csv(f'{prefix}.pvar', sep='\t', 
                                 dtype={'#CHROM':str, 'POS':int})
         self.pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)
+        self.pvar.drop_duplicates(inplace=True)
         
         self.pgen = pg.PgenReader(
             bytes(f'{prefix}.pgen', 'utf8'), 
@@ -66,6 +68,7 @@ class PGEN2Pandas:
         return self.psam['IID'].to_list()
 
     def get_dosage_matrix(self, chrom:str, start:int, end:int, 
+                          snp_win:int=50, win:Optional[int]=None,
                           SNP_thresh:int=10000) -> Optional[pd.DataFrame]:
         """Extract the dosage values for variants in the interval
         defined by chrom:start-end and return a pandas dataframe of the
@@ -97,7 +100,12 @@ class PGEN2Pandas:
             (self.pvar['POS'] <= end)].sort_values('POS')
         if len(var_subset) > SNP_thresh:
             return None
-        
+
+        if win is not None:
+            split_var_cols = np.array_split(var_subset.index.values, 
+                                            np.arange(snp_win, len(var_subset), snp_win))
+            var_subset = var_subset.loc[split_var_cols[win]]
+
         dos = np.empty((len(var_subset), len(self.psam)), dtype=np.float32)
         for i, vari in enumerate(var_subset.index.values):
             self.pgen.read_dosages(vari, dos[i])
@@ -327,9 +335,9 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
 # Data creation and loading functions
 def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, buffer:int, label:str, 
-              sys_params:dict, covs:list, SNP_thresh:int=10000, 
-              only_covs:bool=False, preprocess:bool=True,
-              lock:Optional[mp.Lock]=None) -> Optional[tuple]:
+              sys_params:dict, covs:list, win:Optional[int]=None, 
+              save_data:bool=False, SNP_thresh:int=10000, only_covs:bool=False, 
+              preprocess:bool=True, lock:Optional[mp.Lock]=None) -> Optional[tuple]:
     """Load data, balance it and obtain train-test splits before
     training. If the preprocess argument is False (by default True), 
     this function will simply create and save the data to disk and 
@@ -391,7 +399,6 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
         6 - Number of SNPs in the data arrays (int)
     """
     log_creation = lock is not None
-    save_data = True
 
     test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
     test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
@@ -403,17 +410,23 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     train_labels = train_ids_df[label].to_list()
     train_ids = train_ids_df['iid'].to_list()
 
-    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
-                f'chr{chrom}_{gene}_{buffer}bp_{label}.csv')
+    if win is not None:
+        data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/wins/' +
+                    f'chr{chrom}_{gene}_{win}_{buffer}bp_{label}.csv')
+    else:
+        data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
+                    f'chr{chrom}_{gene}_{buffer}bp_{label}.csv')
 
     if os.path.exists(data_path):
+        print(f'[{gene}] Data exists.')
         data_mat = pd.read_csv(data_path, index_col=0, comment='#')
         data_mat.index = data_mat.index.astype(str)
         data_mat = data_mat.loc[train_ids+test_ids]
         save_data = False
     else:
         data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start-buffer, 
-                                        end=end+buffer, SNP_thresh=SNP_thresh)
+                                        end=end+buffer, snp_win=50, win=win,
+                                        SNP_thresh=SNP_thresh)
         if data_mat is None:
             return None
         
@@ -423,12 +436,10 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
                             left_index=True, right_index=True)
     
     data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
-    
     data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
     assert not np.any(data_mat.columns.duplicated()), \
         f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
-
     assert not np.any(pd.isna(data_mat)), \
             f'[{gene}]: Dataframe contains NaN values'
     
@@ -558,7 +569,6 @@ def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str,
     return data_tuple
 
 def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str, 
-
                     covs:list, sys_params:dict) -> tuple:
     """Given a training and testing pandas dataframe, this function
     scales features between 0 and 1, and converts samples into 'grouped
@@ -604,29 +614,6 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     
     scaled_test_df = mm_scaler.transform(test_df)
     test_df.iloc[:, num_snps:-1] = scaled_test_df[:, num_snps:-1]
-    
-    # Scale SNPs between -1 and 1 to match scalling of GWANNv1
-    # mm_scaler = MinMaxScaler(feature_range=(-1, 1))
-    # mm_scaler.fit(train_df)
-    # scaled_train_df = mm_scaler.transform(train_df)
-    # train_df.iloc[:, :num_snps] = scaled_train_df[:, :num_snps]
-    
-    # scaled_test_df = mm_scaler.transform(test_df)
-    # test_df.iloc[:, :num_snps] = scaled_test_df[:, :num_snps]
-
-    # Convert data into grouped samples
-    # grps = np.load(f'{sys_params["GROUP_IDS_PATH"]}')
-    # grp_size = grps['train_grps'].shape[1]
-    # train_grps = np.asarray(grps['train_grps'].flatten(), dtype=int).astype(str)
-    # test_grps = np.asarray(grps['test_grps'].flatten(), dtype=int).astype(str)
-    
-    # X = train_df.loc[train_grps][data_cols].to_numpy()
-    # X = np.reshape(X, (-1, grp_size, X.shape[-1]))
-    # y = grps['train_grp_labels']
-
-    # X_test = test_df.loc[test_grps][data_cols].to_numpy()
-    # X_test = np.reshape(X_test, (-1, grp_size, X_test.shape[-1]))
-    # y_test = grps['test_grp_labels']
     
     X = train_df[data_cols].to_numpy()
     y = train_df[label].values

@@ -12,7 +12,7 @@ from scipy.stats import spearmanr, rankdata
 import run_genes
 import dummy_genes
 import cov_model
-from GWANN.dataset_utils import create_groups, __create_groups
+from GWANN.dataset_utils import create_groups
 
 def sensitivity_1(chroms:list):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
@@ -473,19 +473,19 @@ def sensitivity_7():
         #                               num_procs=103)
 
     for label in ['FH_AD']:
-        for grp_size in [20]:
+        for grp_size in [10]:
                 torch_seed=int(os.environ['TORCH_SEED'])
                 random_seed=int(os.environ['GROUP_SEED'])
                 exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
                 
                 # cov_model.create_cov_only_data(label=label, param_folder=param_folder)
-                cov_model.model_pipeline(label=label, param_folder=param_folder,
-                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
-                                         grp_size=grp_size)
+                # cov_model.model_pipeline(label=label, param_folder=param_folder,
+                #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
+                #                          grp_size=grp_size)
                 
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=False)
+                            glist=['BIN1'], grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 

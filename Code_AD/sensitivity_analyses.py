@@ -444,7 +444,7 @@ def sensitivity_6():
                 #             grp_size=grp_size)
         # break
 
-def sensitivity_7():
+def sensitivity_7(chroms):
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
     
     with open('params/gene_subsets.yaml', 'r') as f:
@@ -493,7 +493,7 @@ def sensitivity_7():
                 #             grp_size=grp_size)
 
 if __name__ == '__main__':
-    # chroms = sys.argv[1].split(',')
+    chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
     # sensitivity_1_3(chroms)
     # sensitivity_1_4(chroms)
@@ -504,4 +504,4 @@ if __name__ == '__main__':
     # sensitivity_3()
     # sensitivity_4()
     # sensitivity_5()
-    sensitivity_7()
+    sensitivity_6()

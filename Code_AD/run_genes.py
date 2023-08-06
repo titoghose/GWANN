@@ -30,6 +30,7 @@ def create_csv_data(label:str, param_folder:str, chrom:str, SNP_thresh:int=10000
     with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
         covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
 
+    os.makedirs(sys_params["DATA_BASE_FOLDER"], exist_ok=True)
     create_data_for_run(label, chrom, glist, sys_params, covs, gene_map_file, 
                         buffer=2500, SNP_thresh=SNP_thresh, 
                         num_procs_per_chrom=num_procs, preprocess=False)

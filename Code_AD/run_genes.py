@@ -195,13 +195,13 @@ if __name__ == '__main__':
     
     # Run model training pipeline
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = list(np.tile([9, 8, 7, 6, 5], 4))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 4))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
     exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
-    # glist = get_chrom_glist(chrom)
-    glist = ['BIN1']
+    glist = get_chrom_glist(chrom)
+    # glist = ['EPHA1', 'EPHA1-AS1', 'PILRA', 'NYAP1', 'ZCWPW1', 'SDK1', 'MAGI2']
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 
                    gpu_list=gpu_list, glist=glist, 

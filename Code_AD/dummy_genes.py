@@ -157,26 +157,31 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     model = GWANNet5
     model_params = {
         'grp_size':grp_size,
-        'inp':0,
+        'snps':0,
+        'cov_model':None,
         'enc':8,
-        'h':[128, 64],
-        'd':[0.3, 0.3],
-        'out':16,
+        'h':[32, 16],
+        'd':[0.5, 0.5],
+        'out':8,
         'activation':nn.ReLU,
-        'att_model':AttentionMask1, 
-        'att_activ':nn.Sigmoid
+        'att_model':AttentionMask1
     }
     hp_dict = {
         'optimiser': 'adam',
-        'lr': 1e-4,
+        'lr': 5e-3,
         'batch': 256,
         'epochs': 250,
+        'early_stopping':20
     }
     prefix = label + '_Chr' + exp_name
+
+    cov_model_id = f'{prefix.replace("Chr", "Cov").replace("Dummy", "")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
+    cov_model_path = '{}/{}'.format(sys_params["LOGS_BASE_FOLDER"], cov_model_id)
+
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
                      hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
-                     grp_size=grp_size)
+                     cov_model_path=cov_model_path, grp_size=grp_size)
     
     # Remove genes that have already completed
     if os.path.exists(exp.summary_f):

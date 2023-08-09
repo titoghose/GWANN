@@ -444,7 +444,7 @@ def sensitivity_6():
                 #             grp_size=grp_size)
         # break
 
-def sensitivity_7(chroms):
+def sensitivity_7():
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
     
     with open('params/gene_subsets.yaml', 'r') as f:
@@ -453,10 +453,12 @@ def sensitivity_7(chroms):
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
     gdf.set_index('symbol', inplace=True, drop=False)
     gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
+    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(1, 22, 2)])]
+    print(gdf.chrom.unique())
     gdf.sort_index(inplace=True)
     glist = gdf.index.to_list()
     
-    gpu_list = list(np.tile([5, 6, 7, 8, 9], 4))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 4))
 
     # Ceate data
     # for label in ['MATERNAL_MARIONI']:
@@ -485,7 +487,7 @@ def sensitivity_7(chroms):
                 
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=['BIN1'], grp_size=grp_size, shap_plots=False)
+                            glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
@@ -493,7 +495,6 @@ def sensitivity_7(chroms):
                 #             grp_size=grp_size)
 
 if __name__ == '__main__':
-    chroms = sys.argv[1].split(',')
     # sensitivity_1_2(chroms)
     # sensitivity_1_3(chroms)
     # sensitivity_1_4(chroms)
@@ -504,4 +505,4 @@ if __name__ == '__main__':
     # sensitivity_3()
     # sensitivity_4()
     # sensitivity_5()
-    sensitivity_6()
+    sensitivity_7()

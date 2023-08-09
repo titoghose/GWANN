@@ -131,9 +131,13 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
         gdf.set_index('symbol', inplace=True)
         gdf = gdf.loc[glist]
+
+        gdf.sort_index(inplace=True)
+        gdf = gdf.iloc[105:115]
+        
         gene_win_dict = {'chrom':[], 'gene':[], 'win':[], 'start':[], 'end':[]}
         for g, grow in gdf.iterrows():
-            wins = list(range(grow['num_wins']))
+            wins = list(range(grow['num_wins_2500bp']))
             gene_win_dict['chrom'].extend([grow['chrom']]*len(wins))
             gene_win_dict['gene'].extend([g]*len(wins))
             gene_win_dict['win'].extend(wins)
@@ -153,13 +157,15 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
             print(done_genes_df.shape)
             gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
             gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
-            
-        print(f'Number of genes left to train: {gene_win_df.shape[0]}')
-        
+
+        print(gene_win_df.head(20))   
         genes = gene_win_df.to_dict(orient='list')
+        
+        print(f'Number of genes left to train: {len(genes["gene"])}')
 
         # X, y, X_test, y_test, cw, data_cols, num_snps = exp.__gen_data__({k:v[-1] for k,v in genes.items()})
         # print(data_cols)
+        # exp.__set_genotypes_and_covariates__(chrom=genes['chrom'][0])
         exp.parallel_run(genes=genes)
 
     if shap_plots:
@@ -180,7 +186,7 @@ def get_chrom_glist(chrom:str) -> list:
     gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
     gdf.set_index('symbol', inplace=True)
     gdf = gdf.loc[gdf['chrom'] == chrom]
-    gdf = gdf.loc[gdf['num_wins'] > 0]
+    gdf = gdf.loc[gdf['num_wins_2500bp'] > 0]
     return gdf.index.to_list()
     
 if __name__ == '__main__':
@@ -195,13 +201,12 @@ if __name__ == '__main__':
     
     # Run model training pipeline
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 4))
+    gpu_list = list(np.tile([5, 6, 7, 8, 9], 4))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
     exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
     glist = get_chrom_glist(chrom)
-    # glist = ['EPHA1', 'EPHA1-AS1', 'PILRA', 'NYAP1', 'ZCWPW1', 'SDK1', 'MAGI2']
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 
                    gpu_list=gpu_list, glist=glist, 

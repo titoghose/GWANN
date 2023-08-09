@@ -38,7 +38,6 @@ import random
 # random.seed(0)
 
 import torch
-torch.manual_seed(int(os.environ['TORCH_SEED']))
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 torch.backends.cudnn.deterministic = True
@@ -687,6 +686,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     X, y = torch.tensor(X).float(), torch.tensor(y).long()
     X_test, y_test = torch.tensor(X_test).float(), torch.tensor(y_test).long()
     
+    torch.manual_seed(int(os.environ['TORCH_SEED']))
     model = construct_model(model_type, **model_args)
     for named_module in model.named_modules():
         if 'cov_model' in named_module[0]:

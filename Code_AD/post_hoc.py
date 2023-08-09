@@ -62,7 +62,13 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     else:
         summ_df['P'] = summ_df[metric].apply(lambda x: ep.estimate(-1*x)).values
 
+<<<<<<< HEAD
     summ_df[f'P_bonf'] = multipletests(summ_df['P'].values, method='bonferroni')[1]
+=======
+    _, corr_p, _, alpha_bonf = multipletests(summ_df['P'].values, method='bonferroni')
+    summ_df[f'P_bonf'] = corr_p
+    # summ_df[f'alpha_bonf'] = alpha_bonf
+>>>>>>> 26a07a7782d0a9722996d61d427fd57c4a4c33e0
     summ_df[f'P_fdr_bh'] = multipletests(summ_df['P'].values, method='fdr_bh')[1]
     summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv', index=False)
     
@@ -106,7 +112,8 @@ def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
 if __name__ == '__main__':
     label = 'FH_AD'
     exp_name = 'Sens7_00_GS10_v4'
-    # combine_chrom_summ_stats([7, 9, 11, 13, 15, 17, 19, 21], label=label, exp_name=exp_name)
+    combine_chrom_summ_stats([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22], 
+                             label=label, exp_name=exp_name)
     calculate_p_values(label=label, exp_name=exp_name, 
                        metric='Loss', greater_is_better=False)
     calculate_p_values(label=label, exp_name=exp_name, 

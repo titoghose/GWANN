@@ -460,20 +460,6 @@ def sensitivity_7():
     
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 4))
 
-    # Ceate data
-    # for label in ['MATERNAL_MARIONI']:
-        # for chrom, idx in gdf.groupby('chrom').groups.items():
-        #     if str(chrom) not in chroms:
-        #         continue
-        #     gl = gdf.loc[idx]['symbol'].to_list()
-        #     print(chrom, len(gl))
-        #     print(gl)
-        #     run_genes.create_csv_data(label=label, param_folder=param_folder, 
-        #                               chrom=str(chrom), glist=gl, split=True)
-        # run_genes.create_csv_data(label=label, param_folder=param_folder, 
-        #                               chrom=str(1), glist=glist, split=True, 
-        #                               num_procs=103)
-
     for label in ['FH_AD']:
         for grp_size in [10]:
                 torch_seed=int(os.environ['TORCH_SEED'])

@@ -253,9 +253,9 @@ class Experiment:
         for gene_num in range(num_genes):
             gdict = {k:genes[k][gene_num] for k in genes.keys()}
             func_args.append((shared_gpu_stack, gdict, lock, True, None))
-            
+
         with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
-            pool.starmap_async(self.train_gene, func_args, chunksize=1)
+            pool.starmap(self.train_gene, func_args, chunksize=1)
             pool.close()
             pool.join()
         

@@ -201,16 +201,14 @@ if __name__ == '__main__':
     parser.add_argument('--label', type=str, required=True)
     args = parser.parse_args()
     label = args.label
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
 
-    # Create data
-    # create_cov_only_data(label=label, param_folder=param_folder)
-
-    # Train the covariate models
-    gpu_list = list(np.repeat([0, 1], 1))
-    model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list,
-                   exp_suffix='Sens2')
-
-    # Generate covariate model encodings and save to disk
-    # gen_cov_encodings(label=label, param_folder=param_folder, device=0, 
-    #                   exp_suffix='Sens2')
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
+    gpu_list = [5, 6]
+    grp_size = 10
+    torch_seed=int(os.environ['TORCH_SEED'])
+    random_seed=int(os.environ['GROUP_SEED'])
+    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    model_pipeline(label=label, param_folder=param_folder,
+                    gpu_list=gpu_list, exp_name=exp_name, 
+                    grp_size=grp_size)

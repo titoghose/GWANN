@@ -431,9 +431,9 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
             return None
         
         data_mat.set_index('iid', inplace=True)
-        data_mat = data_mat.loc[train_ids+test_ids]
-        data_mat = pd.merge(data_mat, phen_cov[covs].loc[train_ids+test_ids], 
+        data_mat = pd.merge(data_mat, phen_cov[covs].loc[data_mat.index], 
                             left_index=True, right_index=True)
+        data_mat = data_mat.loc[train_ids+test_ids]
     
     data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
     data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]

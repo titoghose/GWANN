@@ -25,12 +25,13 @@ import matplotlib.colors as colors
 import matplotlib.cm as cm
 plt.rcParams['svg.fonttype'] = 'none'
 from adjustText import adjust_text
+import seaborn as sns
 
 from GWANN.models import *
 from GWANN.models import *
 from GWANN.dataset_utils import *
 
-from sklearn import metrics
+from sklearn.metrics import roc_auc_score, f1_score
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
@@ -219,42 +220,29 @@ def create_train_plots(gene_dir, m_plot, sweight=0, save_as='svg', suffix=''):
     
     fig_name = '{}/train_plot_{}.{}'.format(gene_dir, suffix, save_as)
     
-    colors = {'f1':'blue', 'prec':'green', 'rec':'violet', 'acc':'orange', 
-        'mcc':'black', 'loss':'red'}
+    colors = {'roc_auc':'blue', 'acc':'orange', 'loss':'black'}
     tm = np.load('{}/training_metrics.npz'.format(gene_dir))
     
-    # Get values only for the first FOLD
-    conf_mat = tm['agg_conf_mat']
-    loss = tm['agg_loss']
-    
-    metrics = {'f1':[[], []], 'prec':[[], []], 'rec':[[], []], 'acc':[[], []], 
-        'mcc':[[], []], 'loss':[loss[:,0], loss[:,1]]}
-    for i, cm in enumerate(conf_mat):
-        train_mets = metrics_from_conf_mat(cm[0])
-        test_mets = metrics_from_conf_mat(cm[1])
-        for k in train_mets.keys():
-            metrics[k][0].append(train_mets[k])
-            metrics[k][1].append(test_mets[k])
+    metric_df = []
+    for f in tm.files:
+        metric = '_'.join(f.split('_')[:-1])
+        if metric != m_plot:
+            continue
+        split = f.split('_')[-1]
+        vals = tm[f]
+        epochs = np.arange(len(vals))
+        temp_df = pd.DataFrame.from_dict(
+                    {'Epoch': epochs, 
+                     m_plot: vals,
+                     'Split': [split]*len(epochs)})
+        metric_df.append(temp_df)
 
-    # Create plot for each metric
+    metric_df = pd.concat(metric_df)
+
     fig, ax = plt.subplots()
-    
-    if m_plot is None:
-        m_plot = metrics.keys()
-    for m in m_plot:
-        # Initialise graph values
-        yt = smoothen(metrics[m][0], sweight)
-        yv = smoothen(metrics[m][1], sweight)
-        x = np.arange(len(yt))
-        
-        # Create and save the graph
-        ax.plot(x, yt, label=m+'_train', linestyle='-', c=colors[m])
-        ax.plot(x, yv, label=m+'_test', linestyle=':', c=colors[m])
-        ax.tick_params(axis='both', labelsize=8)
-        
-    ax.set_xlabel('Epochs')
-    ax.set_ylabel('_'.join(m_plot))
-    ax.legend()
+    sns.lineplot(data=metric_df, x='Epoch', y=m_plot, style='Split', 
+                 c=colors[m_plot], ax=ax)
+    ax.tick_params(axis='both', labelsize=8)
     fig.savefig(fig_name)
     plt.close(fig)
               
@@ -411,6 +399,15 @@ def gen_conf_mat(y_true:torch.tensor, y_pred:torch.tensor,
     
     return (tn, fp, fn, tp)
 
+def metrics_from_raw(y_true:torch.tensor, pred_prob:torch.tensor) -> dict: 
+    
+    y_true = y_true.cpu().numpy()
+    pred_prob = pred_prob.cpu().numpy()
+    
+    roc_auc = roc_auc_score(y_true=y_true, y_score=pred_prob)
+    
+    return {'roc_auc':roc_auc}
+
 def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> dict: 
     """Function to convert confusion matrix values into F1-score, 
     precision, recall, accuracy and MCC. Any value is that not
@@ -455,7 +452,7 @@ def metrics_from_conf_mat(conf_mat:Union[tuple, list, np.ndarray]) -> dict:
 
 def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor, 
                    Xt:torch.tensor, yt:torch.tensor, training_dict:dict, 
-                   log: str) -> tuple:
+                   log: str) -> dict:
     """Model training and testing loop.
 
     Parameters:
@@ -481,31 +478,25 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     
     Returns
     -------
-    tuple
-        Tuple of three:
-            best_ep : Best epoch
-            agg_conf_mat : torch tensor (epochs, 2, 4)
-            avg_loss : torch tensor (epochs, 2)
+    dict
+        best_ep, conf_mat, avg_acc, loss, roc_auc
     """
     # Get all training requirements from training_dict
     model_name = training_dict['model_name']
     train_ind = training_dict['train_ind']
     val_ind = training_dict['val_ind']
+    test_ind = training_dict['test_ind']
     loss_fn = training_dict['loss_fn']
     optimiser = training_dict['optimiser']
     batch_size = training_dict['batch_size']
     epochs = training_dict['epochs']
     early_stopping_thresh = training_dict['early_stopping']
-    scheduler = training_dict['scheduler']
     device = training_dict['device']
     
-    if Xt is not None:
-        train_ind = np.concatenate((train_ind, val_ind))
-        Xval, yval = Xt, yt
-    else:
-        Xval, yval = X[val_ind], y[val_ind]
-
     train_dataset = GWASDataset(X[train_ind], y[train_ind])
+    val_dataset = GWASDataset(Xt[val_ind], yt[val_ind])
+    test_dataset = GWASDataset(Xt[test_ind], yt[test_ind])
+    
     train_sampler = BalancedBatchGroupSampler(train_dataset, 
                                               batch_size=batch_size, 
                                               grp_size=model.grp_size, 
@@ -514,14 +505,13 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     train_dataloader = DataLoader(dataset=train_dataset, 
                                   batch_sampler=train_sampler)
     
-    val_dataset = GWASDataset(Xval, yval)
-    
     # Send model to device and initialise weights and metric tensors
     model.to(device)
     loss_fn = loss_fn.to(device)
-    agg_conf_mat = torch.zeros((epochs, 2, 4))
-    avg_acc = torch.zeros((epochs, 2))
-    avg_loss = torch.zeros((epochs, 2))
+    agg_conf_mat = {k:torch.zeros((epochs, 4)) for k in ['train', 'val', 'test']}
+    avg_acc = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
+    avg_roc_auc = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
+    avg_loss = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
     
     early_stopping = EarlyStopping(patience=early_stopping_thresh, 
                                    save_path=f'{log}/{model_name}.pt', 
@@ -547,27 +537,18 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             optimiser.step()
 
         # Infer
-        for si, dataset in enumerate([train_dataset, val_dataset]):
+        for split, dataset in zip(['train', 'val', 'test'], [train_dataset, val_dataset, test_dataset]):
             X_tensor = dataset.data
             y_tensor = dataset.labels
             
-            _, conf_mat, loss = infer(
+            metric_dict = infer(
                 X_tensor, y_tensor, model, loss_fn, device)
-            agg_conf_mat[epoch][si] += torch.as_tensor(conf_mat)
-            avg_loss[epoch][si] = loss
-            acc = metrics_from_conf_mat(agg_conf_mat[epoch][si])['acc']
-            avg_acc[epoch][si] = acc
+            agg_conf_mat[split][epoch] = torch.as_tensor(metric_dict['conf_mat'])
+            avg_loss[split][epoch] = metric_dict['loss']
+            avg_roc_auc[split][epoch] = metric_dict['roc_auc']
+            avg_acc[split][epoch] = metrics_from_conf_mat(agg_conf_mat[split][epoch])['acc']
         
-        # If val acc plateaus or starts decreasing:
-        # - Drop LR
-        # - Backtrack to last best model and resume training
-        if scheduler is not None:
-            scheduler.step(avg_acc[epoch][1])
-            new_lr = scheduler.optimizer.state_dict()['param_groups'][0]['lr']
-            if new_lr < current_lr:
-                model.load_state_dict(best_state)
-
-        early_stopping(avg_loss[epoch][1], model, epoch)
+        early_stopping(avg_loss['val'][epoch], model, epoch)
         # early_stopping(avg_acc[epoch][1], model, epoch)
         if early_stopping.early_stop:
             best_state = model.state_dict()
@@ -575,10 +556,17 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
 
     print('\n\n', model_name, ' BEST EPOCH ', early_stopping.best_epoch, '\n\n')
     
-    agg_conf_mat = agg_conf_mat[:min(epoch+1, epochs)].detach().cpu().numpy()
-    avg_loss = avg_loss[:min(epoch+1, epochs)].detach().cpu().numpy()
+    for split in ['train', 'val', 'test']:
+        agg_conf_mat[split] = agg_conf_mat[split][:min(epoch+1, epochs)].detach().cpu().numpy()
+        avg_loss[split] = avg_loss[split][:min(epoch+1, epochs)].detach().cpu().numpy()
+        avg_acc[split] = avg_acc[split][:min(epoch+1, epochs)].detach().cpu().numpy()
+        avg_roc_auc[split] = avg_roc_auc[split][:min(epoch+1, epochs)].detach().cpu().numpy()
 
-    return early_stopping.best_epoch, agg_conf_mat, avg_loss
+    return {'best_ep':early_stopping.best_epoch, 
+            'conf_mat':agg_conf_mat, 
+            'acc':avg_acc, 
+            'loss':avg_loss, 
+            'roc_auc':avg_roc_auc}
 
 def training_stuff(model:nn.Module, damping:float, class_weights:np.ndarray, 
                    lr:float, opt:str) -> tuple:
@@ -706,13 +694,15 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
         scheduler = None
 
     train_ind = np.arange(X.shape[0])
-    # np.random.seed(6211)
-    # np.random.shuffle(train_ind)
+    val_splitter = StratifiedShuffleSplit(n_splits=2, test_size=0.5, 
+                                          random_state=0)
+    test_ind, val_ind = next(val_splitter.split(y_test, y_test))
 
     training_dict = {
         'model_name': model_name,
         'train_ind': train_ind,
-        'val_ind': np.array([], dtype=int),
+        'val_ind': val_ind,
+        'test_ind': test_ind,
         'loss_fn': loss_fn,
         'optimiser':optimiser,
         'scheduler': scheduler,
@@ -728,7 +718,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
 
 def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module, 
           loss_fn:nn.Module, device:Union[str, int], perms:Optional[list]=None, 
-          num_snps:int=0, class_weights:list=[1,1], batch_size:int=2048) -> tuple:
+          num_snps:int=0, class_weights:list=[1,1], batch_size:int=2048) -> dict:
     """Model inference.
 
     Parameters:
@@ -756,19 +746,14 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
 
     Returns
     -------
-    tuple
-        y_pred : Numpy ndarray
-            Network predictions.
+    dict
         conf_mat : tuple of float
             (tn, fp, fn, tp)
         loss : float
             Loss.
+        roc_auc : float
+            ROC AUC Score
     """
-    conf_mats = []
-    y_preds = []
-    losses = []
-    
-    # torch.backends.cudnn.benchmark = True
     with torch.no_grad():
         dataset = GWASDataset(X_tensor, y_tensor)
         sampler = BalancedBatchGroupSampler(dataset=dataset, 
@@ -782,7 +767,8 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         # of samples will be different, so we will get an average
         # accuracy over multiple groupings.
         y_pred = torch.tensor([], device=device).float()
-        y_target = torch.tensor([], device=device).float()
+        pred_prob = torch.tensor([], device=device).float()
+        y_true = torch.tensor([], device=device).float()
         loss = 0.0
         bnum = 0
         for _ in range(1 if len(dataloader) > 1 else 20):
@@ -795,9 +781,14 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
                 loss_fn = loss_fn.to(device)
                 
                 raw_out = model.forward(X_batch)[:, 0]
+                
                 y_pred = torch.cat(
                     (y_pred, pred_from_raw(raw_out.detach().clone())))
-                y_target = torch.cat((y_target, y_batch.detach().clone()))
+                
+                pred_prob = torch.cat(
+                    (pred_prob, torch.sigmoid(raw_out.detach().clone())))
+                
+                y_true = torch.cat((y_true, y_batch.detach().clone()))
                 batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
                 loss = running_avg(loss, batch_loss, bnum+1)
                 
@@ -807,12 +798,11 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
                                         classes=[0, 1], 
                                         y=y_tensor.cpu().numpy())
         class_weights = torch.tensor(class_weights, device=device).float()
-        conf_mat = gen_conf_mat(y_target.detach().clone(), y_pred, 
+        conf_mat = gen_conf_mat(y_true.detach().clone(), y_pred, 
                                 class_weights=class_weights)
+        roc_auc = metrics_from_raw(y_true=y_true, pred_prob=pred_prob)['roc_auc']
 
-    # torch.backends.cudnn.benchmark = False
-
-    return  y_pred.cpu(), list(conf_mat), loss
+    return {'conf_mat':list(conf_mat), 'loss':loss, 'roc_auc':roc_auc}
 
 def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray, 
           model_dict:dict, optim_dict:dict, train_dict:dict, 
@@ -847,20 +837,30 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
             Best train set accuracy
     """
     torch.cuda.set_device(device)
-    best_ep, conf_mat, loss = start_training(
+    res = start_training(
         X=X, y=y, X_test=X_test, y_test=y_test, model_dict=model_dict, 
         optim_dict=optim_dict, train_dict=train_dict, device=device)
+    
     if train_dict['log'] is not None:
         metric_logs = f'{train_dict["log"]}/training_metrics.npz'
-        np.savez(metric_logs, agg_conf_mat=conf_mat, agg_loss=loss)
+        metric_dict = {}
+        for k in res.keys():
+            if k == 'best_ep':
+                continue
+            for split, v in res[k].items():
+                metric_dict[f'{k}_{split}'] = v
+        np.savez(metric_logs, **metric_dict)
     
-    best_test_cm = conf_mat[best_ep, 1]
-    metrics = metrics_from_conf_mat(best_test_cm)
-    best_test_acc = metrics['acc']
-    best_test_loss = loss[best_ep, 1]
-
+    best_ep = res['best_ep']
+    best_test_acc = res['acc']['test'][best_ep]
+    best_test_loss = res['loss']['test'][best_ep]
+    best_test_roc_auc = res['roc_auc']['test'][best_ep]
+    
     gc.collect()
     torch.cuda.empty_cache()
 
-    return best_ep, best_test_acc, best_test_loss
+    return {'Epoch':res['best_ep'], 
+            'Acc':best_test_acc, 
+            'Loss':best_test_loss, 
+            'ROC_AUC':best_test_roc_auc}
 

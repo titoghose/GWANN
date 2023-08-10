@@ -486,7 +486,7 @@ def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame],
     
     return data_tuple
 
-def load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str, 
+def _load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str, 
                   sys_params:dict, covs:list, 
                   only_covs:bool=False) -> Optional[tuple]:
     """Load data from disk. This function is a quick data loading if the

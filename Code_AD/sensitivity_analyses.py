@@ -453,7 +453,7 @@ def sensitivity_7():
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
     gdf.set_index('symbol', inplace=True, drop=False)
     gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
-    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(1, 22, 2)])]
+    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(2, 22, 2)])]
     print(gdf.chrom.unique())
     gdf.sort_index(inplace=True)
     glist = gdf.index.to_list()
@@ -480,6 +480,41 @@ def sensitivity_7():
                 #             param_folder=param_folder, gpu_list=gpu_list, 
                 #             grp_size=grp_size)
 
+def sensitivity_8():
+    param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    
+    with open('params/gene_subsets.yaml', 'r') as f:
+        gdict = yaml.load(f, yaml.FullLoader)
+    glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
+    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
+    gdf.set_index('symbol', inplace=True, drop=False)
+    gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
+    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(2, 22, 2)])]
+    print(gdf.chrom.unique())
+    gdf.sort_index(inplace=True)
+    glist = gdf.index.to_list()
+    
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
+
+    for label in ['FH_AD']:
+        for grp_size in [10]:
+                torch_seed=int(os.environ['TORCH_SEED'])
+                random_seed=int(os.environ['GROUP_SEED'])
+                exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
+                
+                cov_model.model_pipeline(label=label, param_folder=param_folder,
+                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
+                                         grp_size=grp_size)
+                
+                run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list,
+                            glist=glist, grp_size=grp_size, shap_plots=False)
+                
+                # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
+                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list, 
+                #             grp_size=grp_size)
+
 if __name__ == '__main__':
     # sensitivity_1_2(chroms)
     # sensitivity_1_3(chroms)
@@ -491,4 +526,4 @@ if __name__ == '__main__':
     # sensitivity_3()
     # sensitivity_4()
     # sensitivity_5()
-    sensitivity_7()
+    sensitivity_8()

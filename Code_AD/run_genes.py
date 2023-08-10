@@ -131,9 +131,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
         gdf.set_index('symbol', inplace=True)
         gdf = gdf.loc[glist]
-
-        gdf.sort_index(inplace=True)
-        gdf = gdf.iloc[105:115]
+        # gdf.sort_index(inplace=True)
+        # gdf = gdf.iloc[105:115]
         
         gene_win_dict = {'chrom':[], 'gene':[], 'win':[], 'start':[], 'end':[]}
         for g, grow in gdf.iterrows():
@@ -154,11 +153,10 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         # Remove genes that have already completed
         if os.path.exists(exp.summary_f):
             done_genes_df = pd.read_csv(exp.summary_f) 
-            print(done_genes_df.shape)
+            print(f'Number of gene wins completed: {done_genes_df.shape[0]}')
             gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
             gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
 
-        print(gene_win_df.head(20))   
         genes = gene_win_df.to_dict(orient='list')
         
         print(f'Number of genes left to train: {len(genes["gene"])}')

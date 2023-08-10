@@ -131,6 +131,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
         gdf.set_index('symbol', inplace=True)
         gdf = gdf.loc[glist]
+
         # gdf.sort_index(inplace=True)
         # gdf = gdf.iloc[105:115]
         

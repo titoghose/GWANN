@@ -20,7 +20,7 @@ import yaml
 import shap
 import time
 
-from GWANN.dataset_utils import PGEN2Pandas, load_data, load_win_data
+from GWANN.dataset_utils import PGEN2Pandas, load_data
 from GWANN.train_utils import create_train_plots, train
 from GWANN.models import Diff, Identity
 
@@ -353,23 +353,22 @@ class Experiment:
 
                 # Train the NN on the gene
                 st = datetime.datetime.now()
-                best_epoch, best_acc, best_loss = train(X=X, y=y, 
-                                X_test=X_test, y_test=y_test, 
-                                model_dict=model_dict, optim_dict=optim_dict, 
-                                train_dict=train_dict, device=device)
+                res = train(X=X, y=y, X_test=X_test, y_test=y_test, 
+                            model_dict=model_dict, optim_dict=optim_dict, 
+                            train_dict=train_dict, device=device)
                 et = datetime.datetime.now()
                 
                 with open(self.TRAIN_FILE, 'a') as f:
                     f.write(f'{gene:20} Training time: {et-st}\n')
                 
                 self.__write_gene_summary_row__(gene=gene, chrom=chrom, 
-                                    num_snps=num_snps, epoch=best_epoch, 
-                                    acc=best_acc, loss=best_loss, 
-                                    time_taken=str(et-st), lock=lock)
+                                    num_snps=num_snps, time_taken=str(et-st), 
+                                    lock=lock, **res)
                 
             # Make training plots
-            create_train_plots(gene_dir, ['acc'], suffix='acc', sweight=0.0)
-            create_train_plots(gene_dir, ['loss'], suffix='loss', sweight=0.0)
+            create_train_plots(gene_dir, 'acc', suffix='acc', sweight=0.0)
+            create_train_plots(gene_dir, 'roc_auc', suffix='roc_auc', sweight=0.0)
+            create_train_plots(gene_dir, 'loss', suffix='loss', sweight=0.0)
 
         except:
             with open(self.TRAIN_ERR_FILE, 'a') as errf:
@@ -380,8 +379,9 @@ class Experiment:
             with lock:
                 shared_gpu_stack.append(device)
 
-    def __write_gene_summary_row__(self, gene:str, chrom:str, num_snps:int, epoch:int, 
-                                   acc:float, loss:float, time_taken:str, lock:mp.Lock) -> None:
+    def __write_gene_summary_row__(self, gene:str, chrom:str, num_snps:int, 
+                                   time_taken:str, lock:mp.Lock, 
+                                   **res:dict) -> None:
         """_summary_
 
         Parameters
@@ -392,19 +392,23 @@ class Experiment:
             _description_
         num_snps : int
             _description_
-        acc : float
-            _description_
-        loss : float
-            _description_
         time_taken : str
             _description_
         lock : mp.Lock
             _description_
+        res : dict
+            _description_
         """
         try:
             lock.acquire()
-            header = ['Gene', 'Chrom', 'Type', 'SNPs', 'Epoch', 'Acc', 'Loss', 'Time']
-            data_info = [gene, chrom, self.gene_type, num_snps, epoch, acc, loss, time_taken]
+            header = ['Gene', 'Chrom', 'Type', 'SNPs']
+            data_info = [gene, chrom, self.gene_type, num_snps] 
+            for k, v in res.items(): 
+                header.append(k)
+                data_info.append(v)
+            header.append('Time')
+            data_info.append(time_taken)
+                
             if os.path.isfile(self.summary_f):
                 rows = [data_info]
             else:

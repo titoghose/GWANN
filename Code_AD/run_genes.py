@@ -158,7 +158,6 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
             gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
             gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
 
-        print(gene_win_df.head(20))   
         genes = gene_win_df.to_dict(orient='list')
         
         print(f'Number of genes left to train: {len(genes["gene"])}')
@@ -201,11 +200,11 @@ if __name__ == '__main__':
     
     # Run model training pipeline
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = list(np.tile([5, 6, 7, 8, 9], 4))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
     glist = get_chrom_glist(chrom)
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 

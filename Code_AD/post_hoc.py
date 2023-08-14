@@ -6,6 +6,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from textwrap import wrap
 from statsmodels.stats.multitest import multipletests
+from mygene import MyGeneInfo
+import requests
+import json
 
 class EstimatePValue:
     def __init__(self, null_accs:np.ndarray, greater_is_better:bool) -> None:
@@ -103,14 +106,59 @@ def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
         comb_summ_df.to_csv(comb_summ_path, index=False)
     else:
         print(f'Summary file exists at: {comb_summ_path}')
+
+def mine_agora():
+    mg = MyGeneInfo()
+
+    df = pd.read_csv('/home/upamanyu/GWANN/temp.csv')
+    glist = df['Gene'].to_list()
+
+    agora_df = pd.DataFrame(columns=['hgnc_symbol', 'ENSG', 'isIGAP', 'haseqtl', 'nominations', 
+        'isAnyRNAChangedInADBrain', 'isAnyProteinChangedInADBrain', 
+        'DLPFC', 'TCX', 'CBE', 'STG', 'FP', 'PHG', 'IFG', 'BRAAK', 'CERAD', 'DCFDX', 'COGDX'])
+
+    # for g in tqdm.tqdm(glist):
+    for g in glist:
+        ens_g = mg.query(f'symbol:{g.lower()}', species='human', 
+                        fields='symbol,ensembl.gene')
+        if 'hits' not in ens_g or len(ens_g['hits'])==0:
+            agora_df.loc[g, 'hgnc_symbol'] = g
+            continue
+        print(ens_g['hits'])
+        ens_g = ens_g['hits'][0]['ensembl']
+        if isinstance(ens_g, list):
+            ens_g = ens_g[0]['gene']
+        else:
+            ens_g = ens_g['gene']
+        req_url = 'https://agora.adknowledgeportal.org/api/genes/{}'.format(ens_g)
+        print(f'{g}: {req_url}')
+        response = requests.get(req_url).json()
         
+        for c in agora_df.columns:
+            if c in response.keys():
+                agora_df.loc[g, c] = response[c]
+
+        neuro_corr = response['neuropathologic_correlations']
+        AD_hallmarks = {n['neuropath_type']:n['pval_adj'] for n in neuro_corr}
+        
+        for h, v in AD_hallmarks.items():
+            agora_df.loc[g, h] = v
+
+    agora_df = agora_df.fillna('NA')
+    agora_df.to_csv('/home/upamanyu/GWANN/temp_AGORA.csv', index=False)
+
+
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'Sens7_00_GS10_v4'
-    # combine_chrom_summ_stats([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22], 
-    #                          label=label, exp_name=exp_name)
+    exp_name = 'Sens8_00_GS10_v4'
+    combine_chrom_summ_stats(list(range(1, 23)), 
+                             label=label, exp_name=exp_name)
     calculate_p_values(label=label, exp_name=exp_name, 
                        metric='Loss', greater_is_better=False)
     calculate_p_values(label=label, exp_name=exp_name, 
                        metric='Acc', greater_is_better=True)
+    calculate_p_values(label=label, exp_name=exp_name, 
+                       metric='ROC_AUC', greater_is_better=True)
+    
+    # mine_agora()

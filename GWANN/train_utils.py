@@ -537,7 +537,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             optimiser.step()
 
         # Infer
-        for split, dataset in zip(['train', 'val', 'test'], [train_dataset, val_dataset, test_dataset]):
+        for split, dataset in zip(['train', 'test', 'val'], [train_dataset, test_dataset, val_dataset]):
             X_tensor = dataset.data
             y_tensor = dataset.labels
             
@@ -754,6 +754,9 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         roc_auc : float
             ROC AUC Score
     """
+    model.eval()
+    model = model.to(device)
+    loss_fn = loss_fn.to(device)
     with torch.no_grad():
         dataset = GWASDataset(X_tensor, y_tensor)
         sampler = BalancedBatchGroupSampler(dataset=dataset, 
@@ -775,10 +778,6 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
             for sample in dataloader:
                 X_batch = sample[0].to(device)
                 y_batch = sample[1][:, 0].float().to(device)
-                
-                model.eval()
-                model = model.to(device)
-                loss_fn = loss_fn.to(device)
                 
                 raw_out = model.forward(X_batch)[:, 0]
                 

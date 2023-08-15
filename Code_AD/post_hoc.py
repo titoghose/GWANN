@@ -107,10 +107,12 @@ def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'Sens7_00_GS10_v4'
-    # combine_chrom_summ_stats([2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22], 
-    #                          label=label, exp_name=exp_name)
+    exp_name = 'Sens8_00_GS10_v4'
+    combine_chrom_summ_stats([7, 9, 11, 13, 15, 17, 19, 21], 
+                             label=label, exp_name=exp_name)
     calculate_p_values(label=label, exp_name=exp_name, 
                        metric='Loss', greater_is_better=False)
     calculate_p_values(label=label, exp_name=exp_name, 
                        metric='Acc', greater_is_better=True)
+    calculate_p_values(label=label, exp_name=exp_name, 
+                       metric='ROC_AUC', greater_is_better=True)

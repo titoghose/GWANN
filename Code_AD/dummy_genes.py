@@ -55,24 +55,24 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     phen_cov.rename(columns={'ID_1':'iid'}, inplace=True)
     phen_cov.set_index('iid', inplace=True)
 
-    lock = mp.Manager().Lock()
+    # lock = mp.Manager().Lock()
     
-    cnt = 0
-    dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
-        for dos_freq in dosage_freqs:
-            file_prefix = dummy_plink(samples=ids, 
-                    num_snps=num_snps, dosage_freq=dos_freq, 
-                    out_folder=f'{data_base_folder}/dummy_pgen')
-            pg2pd = PGEN2Pandas(prefix=file_prefix)
-            pg2pd.psam['IID'] = ids
-            pg2pd.psam['FID'] = ids
+    # cnt = 0
+    # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
+    # for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
+    #     for dos_freq in dosage_freqs:
+    #         file_prefix = dummy_plink(samples=ids, 
+    #                 num_snps=num_snps, dosage_freq=dos_freq, 
+    #                 out_folder=f'{data_base_folder}/dummy_pgen')
+    #         pg2pd = PGEN2Pandas(prefix=file_prefix)
+    #         pg2pd.psam['IID'] = ids
+    #         pg2pd.psam['FID'] = ids
             
-            load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
-                    chrom='1', start=0, end=100, buffer=2500, label=label, 
-                    sys_params=sys_params, covs=covs, 
-                    preprocess=False, lock=lock)
-            cnt += 1
+    #         load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
+    #                 chrom='1', start=0, end=100, buffer=2500, label=label, 
+    #                 sys_params=sys_params, covs=covs, 
+    #                 preprocess=False, lock=lock)
+    #         cnt += 1
 
     shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
 
@@ -95,12 +95,13 @@ def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
         os.mkdir(wins_folder)
     
     np.random.seed(93)
-    random_seeds = np.random.randint(0, 10000, size=(1000,))
+    random_seeds = np.random.randint(0, 10000, size=(5000,))
+    random_seeds = random_seeds[1000:]
     i = 0
     par_func = partial(shuffle_snps, data_folder=data_folder, covs=covs, 
                        wins_folder=wins_folder)
     fargs = []
-    num_shuffles = 50
+    num_shuffles = 200
     for f in flist:
         fargs.append((f, random_seeds[i*num_shuffles:(i+1)*num_shuffles]))
         i += 1
@@ -111,14 +112,15 @@ def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list,
                  wins_folder:str) -> None:
     df = pd.read_csv(f'{data_folder}/{f}', index_col=0, comment='#')
     i = 0
-    for snum in tqdm.tqdm(range(50), desc=f'{f.split("_")[1]} - shuffle'):
+    for snum in tqdm.tqdm(range(len(random_seeds)), 
+                          desc=f'{f.split("_")[1]} - shuffle'):
         shuffled_snps = df.iloc[:, :-(len(covs)+1)].values
         np.random.seed(random_seeds[i])
         np.random.shuffle(shuffled_snps)
         df.iloc[:, :-(len(covs)+1)] = shuffled_snps
 
         data_path_split = f.split('_')
-        data_path_split.insert(2, str(snum))
+        data_path_split.insert(2, str(snum+50))
         data_path = f'{wins_folder}/{"_".join(data_path_split)}'
         df.to_csv(data_path)
         i += 1
@@ -213,15 +215,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
     label = args.label
     
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    
+    # Dummy data creation
+    # create_dummy_pgen(param_folder=param_folder,
+    #                   label=label)
+    
     # Run model training pipeline
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = list(np.tile([5, 6, 7], 5))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
     exp_name = f'Dummy{exp_name}'
-    model_pipeline(exp_name=exp_name, label=label, 
-                   param_folder=param_folder, gpu_list=gpu_list, 
-                   grp_size=grp_size)
+    model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 
+                param_folder=param_folder, gpu_list=gpu_list, 
+                grp_size=grp_size)
     

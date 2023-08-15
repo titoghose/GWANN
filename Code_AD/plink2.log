@@ -1,0 +1,48 @@
+PLINK v2.00a3LM 64-bit Intel (8 Jun 2021)
+Options in effect:
+  --keep ./results_Sens8_00_GS10_v4/LD/keep.csv
+  --ld rs28479153 rs5771209 dosage
+  --pfile /mnt/sdf/GWANN_pgen/UKB_chr22
+
+Hostname: doraemon6
+Working directory: /home/upamanyu/GWANN/Code_AD
+Start time: Tue Aug 15 16:20:32 2023
+
+Random number seed: 1692112832
+772675 MiB RAM detected; reserving 386337 MiB for main workspace.
+Using up to 64 threads (change this with --threads).
+333444 samples (0 females, 0 males, 333444 ambiguous; 333444 founders) loaded
+from /mnt/sdf/GWANN_pgen/UKB_chr22.psam.
+104086 variants loaded from /mnt/sdf/GWANN_pgen/UKB_chr22.pvar.
+Note: No phenotype data present.
+--keep: 84220 samples remaining.
+84220 samples (0 females, 0 males, 84220 ambiguous; 84220 founders) remaining
+after main filters.
+Calculating allele frequencies... done.
+
+--ld rs28479153 rs5771209:
+
+rs28479153 alleles:
+  MAJOR = REF = C
+  MINOR = T
+rs5771209 alleles:
+  MAJOR = REF = A
+  MINOR = G
+
+84220 valid samples; 1075.463 het pairs statistically phased.
+
+  r^2 = 0.0180575    D' = 0.865158
+
+        Frequencies      :             rs5771209
+  (expectations under LE)          MAJOR       MINOR
+                                 ----------  ----------
+                           MAJOR  0.717615    0.273023
+                                 (0.711795)  (0.278843)
+                rs28479153
+                           MINOR  0.000907    0.008455
+                                 (0.006727)  (0.002635)
+
+  Major alleles are in phase with each other.
+
+
+End time: Tue Aug 15 16:20:45 2023

@@ -877,6 +877,39 @@ def create_data_for_run(label:str, chrom:str, glist:Optional[list],
         pool.close()
         pool.join()
 
+def get_win_snps(chrom:str, start:int, end:int, win:int, pgen_data:Union[str, pd.DataFrame], 
+                  win_size:int=50) -> pd.DataFrame:
+    """Find number of SNP windows for a given chromosome interval. 
+
+    Parameters
+    ----------
+    chrom : str
+        Chromosome
+    start : int
+        Start position on chromosome
+    end : int
+        End position on chromosome
+    win_size : int, optional
+        Max number of SNPs in a window, by default 50
+
+    Returns
+    -------
+    int
+        Number of windows for the interval
+    """    
+    if isinstance(pgen_data, str):
+        pvar = pd.read_csv(pgen_data, sep='\t', dtype={'#CHROM':str})
+        pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)
+    else:
+        pvar = pgen_data
+    interval_vars = pvar.loc[(pvar['CHROM'] == chrom) &
+                             (pvar['POS'] >= start) &
+                             (pvar['POS'] <= end)]
+    
+    win_snp_idxs = np.array_split(np.arange(len(interval_vars)), 
+                              np.arange(win_size, len(interval_vars), win_size))[win]
+    return interval_vars.iloc[win_snp_idxs]
+
 def find_num_wins(chrom:str, start:int, end:int, pgen_data:Union[str, pd.DataFrame], 
                   win_size:int=50) -> int:
     """Find number of SNP windows for a given chromosome interval. 

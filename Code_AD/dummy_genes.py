@@ -57,22 +57,22 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
 
     lock = mp.Manager().Lock()
     
-    # cnt = 0
-    # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    # for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
-    #     for dos_freq in dosage_freqs:
-    #         file_prefix = dummy_plink(samples=ids, 
-    #                 num_snps=num_snps, dosage_freq=dos_freq, 
-    #                 out_folder=f'{data_base_folder}/dummy_pgen')
-    #         pg2pd = PGEN2Pandas(prefix=file_prefix)
-    #         pg2pd.psam['IID'] = ids
-    #         pg2pd.psam['FID'] = ids
+    cnt = 0
+    dosage_freqs = [0.02, 0.04, 0.06, 0.08]
+    for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
+        for dos_freq in dosage_freqs:
+            file_prefix = dummy_plink(samples=ids, 
+                    num_snps=num_snps, dosage_freq=dos_freq, 
+                    out_folder=f'{data_base_folder}/dummy_pgen')
+            pg2pd = PGEN2Pandas(prefix=file_prefix)
+            pg2pd.psam['IID'] = ids
+            pg2pd.psam['FID'] = ids
             
-    #         load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
-    #                 chrom='1', start=0, end=100, buffer=2500, label=label, 
-    #                 sys_params=sys_params, covs=covs, 
-    #                 preprocess=False, lock=lock)
-    #         cnt += 1
+            load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
+                    chrom='1', start=0, end=100, buffer=2500, label=label, 
+                    sys_params=sys_params, covs=covs, 
+                    preprocess=False, lock=lock)
+            cnt += 1
 
     shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
 
@@ -209,15 +209,19 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', type=int, default=0)
+    parser.add_argument('--label', type=str, required=True)
     args = parser.parse_args()
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun'
-
-    # Create data 
-    # create_dummy_pgen(param_folder=param_folder)
-
+    label = args.label
+    
     # Run model training pipeline
-    # gpu_list = list(np.repeat([0, 1, 2, 3, 4], 4))
-    # for label in ['MATERNAL_MARIONI']:#, 'PATERNAL_MARIONI']:
-    #     model_pipeline(label=label, param_folder=param_folder, gpu_list=gpu_list)
-
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
+    gpu_list = list(np.tile([5, 6, 7], 5))
+    grp_size = 10
+    torch_seed=int(os.environ['TORCH_SEED'])
+    random_seed=int(os.environ['GROUP_SEED'])
+    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'Dummy{exp_name}'
+    model_pipeline(exp_name=exp_name, label=label, 
+                   param_folder=param_folder, gpu_list=gpu_list, 
+                   grp_size=grp_size)
     

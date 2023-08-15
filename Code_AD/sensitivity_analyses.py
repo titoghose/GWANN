@@ -457,9 +457,9 @@ def sensitivity_7():
     print(gdf.chrom.unique())
     gdf.sort_index(inplace=True)
     glist = gdf.index.to_list()
+    gpu_list = list(np.tile([5, 6, 7], 5))
+    print(glist)
     
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 4))
-
     for label in ['FH_AD']:
         for grp_size in [10]:
                 torch_seed=int(os.environ['TORCH_SEED'])
@@ -471,14 +471,14 @@ def sensitivity_7():
                 #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
                 #                          grp_size=grp_size)
                 
-                run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                            param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=False)
+                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list,
+                #             glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
-                # dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list, 
-                #             grp_size=grp_size)
+                dummy_genes.model_pipeline(exp_name=f'{exp_name}Dummy', label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list, 
+                            grp_size=grp_size)
 
 def sensitivity_8():
     param_folder = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'

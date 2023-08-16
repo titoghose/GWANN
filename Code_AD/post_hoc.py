@@ -43,16 +43,16 @@ class EstimatePValue:
         plt.savefig(plot_path, dpi=100)
         plt.close()
 
-        fig, ax = plt.subplots(1, 3, figsize=(10, 4))
-        ax = ax.flatten()
-        for i in range(len(ax)):
-            print([y[i] for y in ys])
-            ax[i].plot(xs, [y[i] for y in ys])
+        # fig, ax = plt.subplots(1, 3, figsize=(10, 4))
+        # ax = ax.flatten()
+        # for i in range(len(ax)):
+        #     print([y[i] for y in ys])
+        #     ax[i].plot(xs, [y[i] for y in ys])
         
-        plt.xlabel('Num dummy datasets')
-        plt.tight_layout()
-        plt.savefig('dist_moments.png', dpi=100)
-        plt.close()
+        # plt.xlabel('Num dummy datasets')
+        # plt.tight_layout()
+        # plt.savefig('dist_moments.png', dpi=100)
+        # plt.close()
 
     def estimate(self, acc:float) -> float:
         return skewnorm.sf(acc, *self.moments)
@@ -90,7 +90,7 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df[f'alpha_bonf'] = alpha_bonf
     summ_df[f'P_fdr_bh'] = multipletests(summ_df['P'].values, method='fdr_bh')[1]
     summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv', index=False)
-    hits_df = summ_df.loc[summ_df['P_fdr_bh'] < 0.05]
+    hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
     hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_hits.csv', index=False)
 
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
@@ -102,7 +102,7 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df['entrez_id'] = gdf.loc[summ_df['Gene'].values]['id'].values
     summ_df['ens_g'] = gdf.loc[summ_df['Gene'].values]['ens_g'].values
     summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
-    hits_df = summ_df.loc[summ_df['P_fdr_bh'] < 0.05]
+    hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
     hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
     
 def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
@@ -180,8 +180,8 @@ def mine_agora(exp_name:str):
     agora_df.sort_values(agora_df.columns.to_list(), ascending=False, inplace=True)
     agora_df = agora_df.T
     
-    sns.set(font_scale=0.5)
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    sns.set(font_scale=0.7)
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
     sns.heatmap(data=agora_df, cmap='Reds', cbar=False, xticklabels=True, 
                 linewidths=0.2, linecolor='gray', ax=ax)
     fig.tight_layout()
@@ -232,6 +232,10 @@ def manhattan(label:str, exp_name:str, metric:str, p_cut_off:float=1e-30):
         lines.append(plt.scatter(xs[-1], data[-1], alpha=0.5, s=5, 
             marker=markers[i], color=colors[i]))
         for ind in range(len(xs[-1])):
+            if df.iloc[ind]['Gene'] in ['MOV10L1', 'FHOD3', 'PIAS2', 'SKOR2', 'APOC1', 'APOC1P1', 
+                   'BCAM', 'BCL3', 'CBLC', 'CEACAM16', 'CLPTM1', 'EXOC3L2', 
+                   'PPP1R37', 'RELB', 'TOMM40', 'ZNF296', 'HMG20A', 'LARP6']:
+                continue
             if df.iloc[ind]['Gene'] in hits:
                 texts.append(plt.text(xs[-1][ind], data[-1][ind], df.iloc[ind]['Gene'], 
                     fontdict={'size':6}, rotation=90))
@@ -315,6 +319,8 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
     gene_pair_ld = []
     for chrom in snp_df['#CHROM'].unique():
         chrom_df = snp_df.loc[snp_df['#CHROM']==chrom].copy()
+        chrom_df.drop_duplicates(['ID'], inplace=True)
+        
         snp_list = chrom_df['ID'].to_list()
         out_file = f'./results_{exp_name}/LD/chrom{chrom}_LDMatrix.csv'
         ld_link_matrix(snp_list=snp_list, out_file=out_file)
@@ -353,6 +359,6 @@ if __name__ == '__main__':
     #                    metric='ROC_AUC', greater_is_better=True)
     
     # manhattan(label=label, exp_name=exp_name, metric='Loss')
-    # mine_agora(exp_name)
-    hit_gene_win_snps(label=label, exp_name=exp_name, 
-                       metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')
+    mine_agora(exp_name)
+    # hit_gene_win_snps(label=label, exp_name=exp_name, 
+    #                    metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')

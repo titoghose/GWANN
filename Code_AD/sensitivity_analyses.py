@@ -485,16 +485,21 @@ def sensitivity_8():
     
     with open('params/gene_subsets.yaml', 'r') as f:
         gdict = yaml.load(f, yaml.FullLoader)
-    glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
-    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
-    gdf.set_index('symbol', inplace=True, drop=False)
-    gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
-    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(1, 22, 2)])]
-    print(gdf.chrom.unique())
-    gdf.sort_index(inplace=True)
-    glist = gdf.index.to_list()
+    # glist = list(set(gdict['KEGG_AD'] + gdict['Marioni_meta']))
+    # gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
+    # gdf.set_index('symbol', inplace=True, drop=False)
+    # gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
+    # gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(1, 22, 2)])]
+    # print(gdf.chrom.unique())
+    # gdf.sort_index(inplace=True)
+    # glist = gdf.index.to_list()
     
-    gpu_list = list(np.tile([5, 6, 7, 8, 9], 5))
+    run1_df = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/FH_AD_Loss_Sens8_00_GS10_v4_gene_summary.csv')
+    top200 = run1_df.sort_values(['P'])
+    top200 = top200.loc[top200['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
+    glist = top200['Gene'].values
+
+    gpu_list = list(np.tile([0, 1, 2, 3, 4, 5], 5))
 
     for label in ['FH_AD']:
         for grp_size in [10]:
@@ -502,13 +507,13 @@ def sensitivity_8():
                 random_seed=int(os.environ['GROUP_SEED'])
                 exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v6'
                 
-                # cov_model.model_pipeline(label=label, param_folder=param_folder,
-                #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
-                #                          grp_size=grp_size)
+                cov_model.model_pipeline(label=label, param_folder=param_folder,
+                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
+                                         grp_size=grp_size)
                 
                 run_genes.model_pipeline(exp_name=exp_name, label=label, 
                             param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist[:10], grp_size=grp_size, shap_plots=False)
+                            glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 

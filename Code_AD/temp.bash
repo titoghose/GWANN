@@ -36,14 +36,30 @@
 # export GROUP_SEED=0
 # python sensitivity_analyses.py
 
-export TORCH_SEED=0
-export GROUP_SEED=1
+# export TORCH_SEED=712
+# export GROUP_SEED=712
+# python sensitivity_analyses.py
+
+# export TORCH_SEED=163
+# export GROUP_SEED=163
+# python sensitivity_analyses.py
+
+# export TORCH_SEED=4250
+# export GROUP_SEED=4250
+# python sensitivity_analyses.py
+
+export TORCH_SEED=8162
+export GROUP_SEED=8162
 python sensitivity_analyses.py
 
-export TORCH_SEED=1
-export GROUP_SEED=0
+export TORCH_SEED=918
+export GROUP_SEED=918
 python sensitivity_analyses.py
 
-export TORCH_SEED=1
-export GROUP_SEED=1
+export TORCH_SEED=61
+export GROUP_SEED=61
+python sensitivity_analyses.py
+
+export TORCH_SEED=1502
+export GROUP_SEED=1502
 python sensitivity_analyses.py

@@ -1,5 +1,6 @@
 import os
 import subprocess
+from typing import Optional
 from scipy.stats import skewnorm
 import numpy as np 
 import pandas as pd 
@@ -23,7 +24,7 @@ class EstimatePValue:
         self.moments = skewnorm.fit(null_accs)
         self.greater_is_better = greater_is_better
     
-    def plot_null_dist(self, plot_path:str) -> None:
+    def plot_null_dist(self, plot_path:Optional[str]=None) -> None:
         
         plt.hist(self.null_accs, density=True, alpha=0.35)
         xs = [100, 200, 500, 800, 1000, 2000, 5000]
@@ -40,8 +41,11 @@ class EstimatePValue:
         plt.legend(title='\n'.join(
             wrap('Distribution estimation sample size', 20)))
         plt.tight_layout()
-        plt.savefig(plot_path, dpi=100)
-        plt.close()
+        if plot_path is not None:
+            plt.savefig(plot_path, dpi=100)
+            plt.close()
+        else:
+            plt.show()
 
         # fig, ax = plt.subplots(1, 3, figsize=(10, 4))
         # ax = ax.flatten()

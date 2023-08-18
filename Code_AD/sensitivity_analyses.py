@@ -495,11 +495,11 @@ def sensitivity_8():
     # glist = gdf.index.to_list()
     
     run1_df = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/FH_AD_Loss_Sens8_00_GS10_v4_gene_summary.csv')
-    top200 = run1_df.sort_values(['P'])
+    top200 = run1_df.sort_values(['P']).head(200)
     top200 = top200.loc[top200['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
     glist = top200['Gene'].values
 
-    gpu_list = list(np.tile([0, 1, 2, 3, 4, 5], 5))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
 
     for label in ['FH_AD']:
         for grp_size in [10]:

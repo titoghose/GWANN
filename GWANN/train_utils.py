@@ -754,7 +754,7 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         roc_auc : float
             ROC AUC Score
     """
-    model.eval()
+    # model.eval()
     model = model.to(device)
     loss_fn = loss_fn.to(device)
     with torch.no_grad():

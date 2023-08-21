@@ -499,13 +499,13 @@ def sensitivity_8():
     top200 = top200.loc[top200['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
     glist = top200['Gene'].values
 
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
+    gpu_list = list(np.tile([1, 2, 3, 4], 5))
 
     for label in ['FH_AD']:
-        for grp_size in [10]:
+        for grp_size in [int(os.environ['GROUP_SIZE'])]:
                 torch_seed=int(os.environ['TORCH_SEED'])
                 random_seed=int(os.environ['GROUP_SEED'])
-                exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v6'
+                exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v7'
                 
                 cov_model.model_pipeline(label=label, param_folder=param_folder,
                                          gpu_list=gpu_list[:2], exp_name=exp_name, 

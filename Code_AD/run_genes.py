@@ -76,7 +76,7 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, glist:list, grp_size:int=10, 
+                   gpu_list:list, glist:Union[list, dict], grp_size:int=10, 
                    shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
@@ -130,20 +130,30 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     if not shap_plots:
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
         gdf.set_index('symbol', inplace=True)
-        gdf = gdf.loc[glist]
-
-        # gdf.sort_index(inplace=True)
-        # gdf = gdf.iloc[105:115]
-        
         gene_win_dict = {'chrom':[], 'gene':[], 'win':[], 'start':[], 'end':[]}
-        for g, grow in gdf.iterrows():
-            wins = list(range(grow['num_wins_2500bp']))
-            gene_win_dict['chrom'].extend([grow['chrom']]*len(wins))
-            gene_win_dict['gene'].extend([g]*len(wins))
-            gene_win_dict['win'].extend(wins)
-            gene_win_dict['start'].extend([grow['start']]*len(wins))
-            gene_win_dict['end'].extend([grow['end']]*len(wins))
+        if not isinstance(glist, dict):
+            gdf = gdf.loc[glist]
 
+            # gdf.sort_index(inplace=True)
+            # gdf = gdf.iloc[105:115]
+            
+            for g, grow in gdf.iterrows():
+                wins = list(range(grow['num_wins_2500bp']))
+                gene_win_dict['chrom'].extend([grow['chrom']]*len(wins))
+                gene_win_dict['gene'].extend([g]*len(wins))
+                gene_win_dict['win'].extend(wins)
+                gene_win_dict['start'].extend([grow['start']]*len(wins))
+                gene_win_dict['end'].extend([grow['end']]*len(wins))
+
+        else:
+            gdf = gdf.loc[glist['gene']]
+            gene_win_dict['gene'] = glist['gene']
+            gene_win_dict['win'] = glist['win']
+            print(len(gene_win_dict['gene']), gdf.shape)
+            gene_win_dict['chrom'] = gdf['chrom'].values
+            gene_win_dict['start'] = gdf['start'].values
+            gene_win_dict['end'] = gdf['end'].values
+        
         gene_win_df = pd.DataFrame.from_dict(gene_win_dict)
         gene_win_df.sort_values(['gene', 'win'], ascending=[True, True], 
                                 inplace=True)

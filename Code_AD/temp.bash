@@ -33,7 +33,7 @@
 # done
 group_sizes=(10)
 # seeds=(0 712 163 4250 8162 918 61 1502)
-seeds=(0 712 163 4250)
+seeds=(712)
 for group_size in ${group_sizes[@]}
 do
     for seed in ${seeds[@]}
@@ -44,7 +44,6 @@ do
         python sensitivity_analyses.py
     done
 done
-
 # export TORCH_SEED=712
 # export GROUP_SEED=712
 # python sensitivity_analyses.py

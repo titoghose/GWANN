@@ -754,10 +754,13 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
         roc_auc : float
             ROC AUC Score
     """
-    def ActivateDropoutInEval(m):
-        for module in m.modules():
-            if isinstance(module, nn.Dropout):
-                module.train() 
+    # def ActivateDropoutInEval(m):
+    #     for module in m.modules():
+    #         if isinstance(module, nn.Dropout):
+    #             module.train() 
+    # model.eval()
+    # ActivateDropoutInEval(model)
+    
     model.eval()
     ActivateDropoutInEval(model)
     

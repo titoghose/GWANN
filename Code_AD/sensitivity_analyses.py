@@ -505,7 +505,7 @@ def sensitivity_8():
         for grp_size in [int(os.environ['GROUP_SIZE'])]:
                 torch_seed=int(os.environ['TORCH_SEED'])
                 random_seed=int(os.environ['GROUP_SEED'])
-                exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v7'
+                exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v8'
                 
                 cov_model.model_pipeline(label=label, param_folder=param_folder,
                                          gpu_list=gpu_list[:2], exp_name=exp_name, 

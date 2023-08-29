@@ -1,13 +1,15 @@
-# chroms=(5 3 1)
-# log_folder="/home/upamanyu/GWANN/Code_AD/NN_Logs/FH_AD_ChrSens8_00_GS10_v4_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam"
-# for chrom in ${chroms[@]}
-# do
-#     export TORCH_SEED=0
-#     export GROUP_SEED=0
-#     python run_genes.py --label FH_AD --chrom $chrom > "./Runs/chr"$chrom".txt"
-#     chrom_log_folder="/home/upamanyu/GWANN/Code_AD/NN_Logs/Chr"$chrom"_FH_AD_ChrSens8_00_GS10_v4_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam"
-#     mv $log_folder $chrom_log_folder
-# done
+seed=4250
+chroms=(21 19 17 15 13 11 9)
+log_folder="/home/upamanyu/GWANN/Code_AD/NN_Logs/FH_AD_ChrSens8_"$seed""$seed"_GS10_v4_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam"
+for chrom in ${chroms[@]}
+do
+    export TORCH_SEED=$seed
+    export GROUP_SEED=$seed
+    export GROUP_SIZE=10
+    python run_genes.py --label FH_AD --chrom $chrom > "./Runs/chr"$chrom".txt"
+    chrom_log_folder="/home/upamanyu/GWANN/Code_AD/NN_Logs/Chr"$chrom"_FH_AD_ChrSens8_"$seed""$seed"_GS10_v4_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam"
+    mv $log_folder $chrom_log_folder
+done
 
 # runs=(3 4 5)
 # chrom=2
@@ -33,7 +35,7 @@
 # done
 group_sizes=(10)
 # seeds=(0 712 163 4250 8162 918 61 1502)
-seeds=(712)
+seeds=(163)
 for group_size in ${group_sizes[@]}
 do
     for seed in ${seeds[@]}

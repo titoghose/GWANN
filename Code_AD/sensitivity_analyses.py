@@ -526,15 +526,25 @@ def sensitivity_8():
     with open('params/gene_subsets.yaml', 'r') as f:
         gdict = yaml.load(f, yaml.FullLoader)
     
-    run1_df = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/FH_AD_Loss_Sens8_00_GS10_v4_summary.csv')
-    sig_df = run1_df.query("P < 0.05")
-    sig_df = sig_df.sort_values('P')
-    print(sig_df.shape)
-    sig_df = sig_df.loc[sig_df['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
-    glist = {
-        'gene':sig_df['Gene'].apply(lambda x:x.split('_')[0]).to_list(),
-        'win':sig_df['Gene'].apply(lambda x:int(x.split('_')[1])).to_list()
-    }
+    # run2_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_712712_GS10_v4/FH_AD_Loss_Sens8_712712_GS10_v4_summary.csv')
+    
+    # run1_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/FH_AD_Loss_Sens8_00_GS10_v4_summary.csv')
+    # run1_df = run1_df.loc[run1_df['Gene'].isin(run2_df['Gene'].values)]
+
+    # run1_df['-logP'] = -np.log10(run1_df['P'])
+    # run2_df['-logP'] = -np.log10(run2_df['P'])
+
+    # run1_df['-logP'] = np.mean(np.stack((run1_df['-logP'], run2_df['-logP']), axis=1), axis=1)
+    
+    # sig_df = run1_df.loc[run1_df['-logP'] > -np.log10(0.05)]
+    # sig_df = sig_df.sort_values('P')
+    # sig_df = sig_df.loc[sig_df['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
+    # print(sig_df.shape)
+    # glist = {
+    #     'gene':sig_df['Gene'].apply(lambda x:x.split('_')[0]).to_list(),
+    #     'win':sig_df['Gene'].apply(lambda x:int(x.split('_')[1])).to_list()
+    # }
+    # glist = {'gene':['BIN1']*6, 'win':np.arange(6)}
 
     gpu_list = list(np.tile([1, 2, 3, 4], 5))
 

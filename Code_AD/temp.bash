@@ -33,7 +33,7 @@
 # done
 group_sizes=(10)
 # seeds=(0 712 163 4250 8162 918 61 1502)
-seeds=(712)
+seeds=(163)
 for group_size in ${group_sizes[@]}
 do
     for seed in ${seeds[@]}

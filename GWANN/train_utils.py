@@ -762,8 +762,6 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
     # ActivateDropoutInEval(model)
     
     model.eval()
-    ActivateDropoutInEval(model)
-    
     model = model.to(device)
     loss_fn = loss_fn.to(device)
     with torch.no_grad():

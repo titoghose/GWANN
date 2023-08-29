@@ -352,17 +352,17 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'Sens8_00_GS10_v4'
+    exp_name = 'Sens8_163163_GS10_v4'
     # combine_chrom_summ_stats(list(range(1, 23)), 
     #                          label=label, exp_name=exp_name)
-    # calculate_p_values(label=label, exp_name=exp_name, 
-    #                    metric='Loss', greater_is_better=False)
+    calculate_p_values(label=label, exp_name=exp_name, 
+                       metric='Loss', greater_is_better=False)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='Acc', greater_is_better=True)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='ROC_AUC', greater_is_better=True)
     
     # manhattan(label=label, exp_name=exp_name, metric='Loss')
-    mine_agora(exp_name)
+    # mine_agora(exp_name)
     # hit_gene_win_snps(label=label, exp_name=exp_name, 
     #                    metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')

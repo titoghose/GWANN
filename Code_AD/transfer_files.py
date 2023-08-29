@@ -4,21 +4,21 @@ import pandas as pd
 
 logs_folder = '/home/upamanyu/GWANN/Code_AD/NN_Logs'
 
-# transfer_cmd = 'rsync -r upamanyu@129.67.155.195:{remote_path} {local_path}.d5'
-seeds=[0, 712, 163, 4250]
-# # seeds=[8162, 918, 61, 1502]
-# for v in ['v8']:
-#     for gs in [10]:
-#         for s in seeds:
-#             exp_logs = f'FH_AD_ChrSens8_{s}{s}_GS{gs}_{v}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam'
-#             summ_path = f'{logs_folder}/{exp_logs}/FH_AD_ChrSens8_{s}{s}_GS{gs}_{v}_2500bp_summary.csv'
-#             if os.path.exists(summ_path):
-#                 cmd = transfer_cmd.format(remote_path=summ_path, local_path=summ_path)
-#                 print(cmd)
-#                 p = subprocess.Popen(cmd, shell=True)
-#                 p.wait()
+transfer_cmd = 'rsync -r upamanyu@129.67.155.195:{remote_path} {local_path}.d5'
+seeds=[163]
+# seeds=[8162, 918, 61, 1502]
+for v in ['v4']:
+    for gs in [10]:
+        for s in seeds:
+            exp_logs = f'FH_AD_ChrSens8_{s}{s}_GS{gs}_{v}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam'
+            summ_path = f'{logs_folder}/{exp_logs}/FH_AD_ChrSens8_{s}{s}_GS{gs}_{v}_2500bp_summary.csv'
+            if os.path.exists(summ_path):
+                cmd = transfer_cmd.format(remote_path=summ_path, local_path=summ_path)
+                print(cmd)
+                p = subprocess.Popen(cmd, shell=True)
+                p.wait()
 
-for v in ['v8']:
+for v in ['v4']:
     for gs in [10]:
         for s in seeds:
             exp_logs = f'FH_AD_ChrSens8_{s}{s}_GS{gs}_{v}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam'

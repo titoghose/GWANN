@@ -209,8 +209,8 @@ if __name__ == '__main__':
     chrom = args.chrom
     
     # Run model training pipeline
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    gpu_list = list(np.tile([1, 2, 3, 4], 5))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])

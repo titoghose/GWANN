@@ -5,7 +5,7 @@ import pandas as pd
 logs_folder = '/home/upamanyu/GWANN/Code_AD/NN_Logs'
 
 transfer_cmd = 'rsync -r upamanyu@129.67.155.195:{remote_path} {local_path}.d5'
-seeds=[163]
+seeds=[918]
 # seeds=[8162, 918, 61, 1502]
 for v in ['v4']:
     for gs in [10]:

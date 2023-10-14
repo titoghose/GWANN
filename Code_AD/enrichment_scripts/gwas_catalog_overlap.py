@@ -31,7 +31,7 @@ def group_AD_related_traits(gwas_all_assoc) -> pd.DataFrame:
     return gwas_AD_assoc
 
 
-overlap_path = '../results_Sens8_00_GS10_v4/enrichments/gwas_catalog_overlap.csv'
+overlap_path = '../results_Sens8_v4_avg/enrichments/gwas_catalog_overlap.csv'
 if not os.path.exists(overlap_path):
     gwas_all_assoc = pd.read_csv('/mnt/sdb/GWAS_Catalog_AD/gwas_catalog_v1.0-associations_e110_r2023-07-29.tsv', 
                                 sep='\t', dtype={'MAPPED_GENE':str, 'REPORTED GENE(S)':str}, 
@@ -48,7 +48,7 @@ if not os.path.exists(overlap_path):
     gwas_AD_assoc = gwas_AD_assoc[['DISEASE/TRAIT', 'P-VALUE', 'Gene']]
 
     # Overlap with GWANN hits
-    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/hits.txt')
+    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4_avg/hits.txt')
     nn_AD_genes = nn_AD_hits['Gene'].to_list()
 
     gwas_AD_overlap = gwas_AD_assoc.loc[gwas_AD_assoc['Gene'].isin(nn_AD_genes)]
@@ -86,6 +86,6 @@ colorbar.set_ticks([0, 1, 2])
 colorbar.set_ticklabels(['No evidence', 'P<1e-5', 'P<5e-8'])
 
 fig.tight_layout()
-fig.savefig('../results_Sens8_00_GS10_v4/enrichments/gwas_catalog_overlap.svg')
-fig.savefig('../results_Sens8_00_GS10_v4/enrichments/gwas_catalog_overlap.png', dpi=100)
+fig.savefig('../results_Sens8_v4_avg/enrichments/gwas_catalog_overlap.svg')
+fig.savefig('../results_Sens8_v4_avg/enrichments/gwas_catalog_overlap.png', dpi=100)
 plt.close()

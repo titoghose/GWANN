@@ -526,27 +526,40 @@ def sensitivity_8():
     with open('params/gene_subsets.yaml', 'r') as f:
         gdict = yaml.load(f, yaml.FullLoader)
     
-    run2_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_712712_GS10_v4/FH_AD_Loss_Sens8_712712_GS10_v4_summary.csv')
+    # run2_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_81628162_GS10_v4/FH_AD_Loss_Sens8_81628162_GS10_v4_summary.csv')
     
-    run1_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_00_GS10_v4/FH_AD_Loss_Sens8_00_GS10_v4_summary.csv')
-    run1_df = run1_df.loc[run1_df['Gene'].isin(run2_df['Gene'].values)]
+    # run1_df = pd.read_csv(f'/home/upamanyu/GWANN/Code_AD/results_Sens8_42504250_GS10_v4/FH_AD_Loss_Sens8_42504250_GS10_v4_summary.csv')
+    # run1_df = run1_df.loc[run1_df['Gene'].isin(run2_df['Gene'].values)]
 
-    run1_df['-logP'] = -np.log10(run1_df['P'])
-    run2_df['-logP'] = -np.log10(run2_df['P'])
+    # run1_df['-logP'] = -np.log10(run1_df['P'])
+    # run2_df['-logP'] = -np.log10(run2_df['P'])
 
-    run1_df['-logP'] = np.mean(np.stack((run1_df['-logP'], run2_df['-logP']), axis=1), axis=1)
+    # run1_df['-logP'] = np.mean(np.stack((run1_df['-logP'], run2_df['-logP']), axis=1), axis=1)
     
-    sig_df = run1_df.loc[run1_df['-logP'] > -np.log10(0.05)]
-    sig_df = sig_df.sort_values('P')
-    sig_df = sig_df.loc[sig_df['Chrom'].isin([str(c) for c in range(1, 23, 2)])]
-    print(sig_df.shape)
-    glist = {
-        'gene':sig_df['Gene'].apply(lambda x:x.split('_')[0]).to_list(),
-        'win':sig_df['Gene'].apply(lambda x:int(x.split('_')[1])).to_list()
-    }
+    # sig_df = run1_df.loc[run1_df['-logP'] > -np.log10(0.05)]
+    # sig_df = sig_df.sort_values('P')
+    # print(sig_df.shape)
+    # sig_df = sig_df.loc[sig_df['Chrom'].isin([str(c) for c in range(2, 23, 2)])]
+    # print(sig_df.shape)
+    # glist = {
+    #     'gene':sig_df['Gene'].apply(lambda x:x.split('_')[0]).to_list(),
+    #     'win':sig_df['Gene'].apply(lambda x:int(x.split('_')[1])).to_list()
+    # }
+    # for bg in ['BIN1_0', 'BIN1_1', 'BIN1_2', 'BIN1_3', 'BIN1_4', 'BIN1_5']:
+    #     if bg not in sig_df['Gene']:
+    #         glist['gene'].append(bg.split('_')[0])
+    #         glist['win'].append(int(bg.split('_')[1]))
+    
+    with open('./params/reviewer_rerun_Sens8hit_overlap_2runs_.txt', 'r') as f:
+        glist = f.read().split('\n')
+    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
+    gdf.set_index('symbol', inplace=True, drop=False)
+    gdf = gdf.loc[gdf.index.isin(glist)].drop_duplicates(subset=['symbol'])
+    gdf = gdf.loc[gdf['chrom'].isin([str(c) for c in range(2, 23, 2)])]
+    gdf.sort_index(inplace=True)
+    glist = gdf.index.to_list()
 
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
-
+    gpu_list = list(np.tile([1, 2, 3, 4], 5))
     for label in ['FH_AD']:
         for grp_size in [int(os.environ['GROUP_SIZE'])]:
                 torch_seed=int(os.environ['TORCH_SEED'])
@@ -557,9 +570,9 @@ def sensitivity_8():
                                          gpu_list=gpu_list[:2], exp_name=exp_name, 
                                          grp_size=grp_size)
                 
-                run_genes.model_pipeline(exp_name=exp_name, label=label, 
-                            param_folder=param_folder, gpu_list=gpu_list,
-                            glist=glist, grp_size=grp_size, shap_plots=False)
+                # run_genes.model_pipeline(exp_name=exp_name, label=label, 
+                #             param_folder=param_folder, gpu_list=gpu_list,
+                #             glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
                 # dummy_genes.model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 

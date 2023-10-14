@@ -287,6 +287,8 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
     samples_df[['#FID', 'IID']].to_csv(f'./results_{exp_name}/LD/keep.csv', index=False, sep='\t')
     
     summ_df = pd.read_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv')
+    summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
+    summ_df['Chrom'] = summ_df['Chrom'].astype(int).values
     summ_df['Win'] = summ_df['Gene'].apply(lambda x:int(x.split('_')[1])).values
     summ_df['Gene'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
     hit_df = summ_df.loc[summ_df['P_bonf'] < 0.05].copy()
@@ -352,11 +354,11 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'Sens8_163163_GS10_v4'
-    # combine_chrom_summ_stats(list(range(1, 23)), 
+    exp_name = 'Sens8_v4_avg'
+    # combine_chrom_summ_stats(list(range(1, 23, 1)), 
     #                          label=label, exp_name=exp_name)
-    calculate_p_values(label=label, exp_name=exp_name, 
-                       metric='Loss', greater_is_better=False)
+    # calculate_p_values(label=label, exp_name=exp_name, 
+    #                    metric='Loss', greater_is_better=False)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='Acc', greater_is_better=True)
     # calculate_p_values(label=label, exp_name=exp_name, 
@@ -364,5 +366,5 @@ if __name__ == '__main__':
     
     # manhattan(label=label, exp_name=exp_name, metric='Loss')
     # mine_agora(exp_name)
-    # hit_gene_win_snps(label=label, exp_name=exp_name, 
-    #                    metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')
+    hit_gene_win_snps(label=label, exp_name=exp_name, 
+                       metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')

@@ -46,6 +46,15 @@ if not os.path.exists(overlap_path):
     gwas_AD_assoc = gwas_AD_assoc.set_index(['DISEASE/TRAIT', 'P-VALUE'])['GENE_LIST'].apply(pd.Series).stack().reset_index().rename(columns={0:'Gene'})
     gwas_AD_assoc['P-VALUE'] = gwas_AD_assoc['P-VALUE'].astype(float)
     gwas_AD_assoc = gwas_AD_assoc[['DISEASE/TRAIT', 'P-VALUE', 'Gene']]
+    
+    group_df = gwas_AD_assoc.sort_values(['DISEASE/TRAIT', 'Gene', 'P-VALUE'])
+    group_df.drop_duplicates(['DISEASE/TRAIT', 'Gene'], inplace=True)
+    missing_gene_values = ['No mapped genes', 'Intergenic', 'intergenic', 'N/A', 'NR', 'None', 'NA']
+    group_df = group_df.loc[~group_df['Gene'].isin(missing_gene_values,)]
+    group_df = group_df.loc[~group_df['Gene'].isin(missing_gene_values)]
+    group_df = group_df.loc[group_df['P-VALUE'] < 5e-8]
+    group_df.to_csv('gwas_catalog_AD_groups.csv', index=False)
+    print('hello')
 
     # Overlap with GWANN hits
     nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4_avg/hits.txt')

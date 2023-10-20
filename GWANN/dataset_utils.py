@@ -6,11 +6,17 @@ from functools import partial
 from typing import Optional, Union
 import csv
 
+from numba import jit
+from joblib import Parallel, delayed
+
 import numpy as np
 import pandas as pd
 import pgenlib as pg
-from sklearn.model_selection import StratifiedKFold
+from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
+import cuml
+from cuml.decomposition import PCA as cuPCA
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
 
 from GWANN.utils import vprint
@@ -52,6 +58,7 @@ class PGEN2Pandas:
                                 dtype={'#CHROM':str, 'POS':int})
         self.pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)
         self.pvar.drop_duplicates(inplace=True)
+        self.pvar.sort_values(['CHROM', 'POS'], inplace=True)
         
         self.pgen = pg.PgenReader(
             bytes(f'{prefix}.pgen', 'utf8'), 
@@ -106,6 +113,41 @@ class PGEN2Pandas:
                                             np.arange(snp_win, len(var_subset), snp_win))
             var_subset = var_subset.loc[split_var_cols[win]]
 
+        dos = np.empty((len(var_subset), len(self.psam)), dtype=np.float32)
+        for i, vari in enumerate(var_subset.index.values):
+            self.pgen.read_dosages(vari, dos[i])
+        
+        dos_df = pd.DataFrame(dos.T.astype(np.float16), 
+                              columns=var_subset['ID'].values)
+        dos_df.insert(0, 'iid', self.psam['IID'].values)
+        
+        return dos_df
+
+    def get_k_snps_matrix(self, chrom:str, start_i:int, 
+                          end_i:int) -> Optional[pd.DataFrame]:
+        """Extract the k dosage values for variants in the defined
+        chromosome, where k= end_i-start_i, and return a pandas 
+        dataframe of the extracted values.
+        
+        Parameters
+        ----------
+        chrom : str
+            Chromosome.
+        start_i : int
+            Start position on the chromosome.
+        end_i : int
+            End position on the chromosome.
+        
+        Returns
+        -------
+        Optional[pd.DataFrame]
+            Pandas dataframe of genotype dosages with vavriants as the
+            columns and samples as the rows. If the provided interval
+            has > SNP_thresh number of SNPs, return None.
+        """
+
+        var_subset = self.pvar.loc[self.pvar['CHROM'] == chrom].iloc[start_i:end_i]
+        
         dos = np.empty((len(var_subset), len(self.psam)), dtype=np.float32)
         for i, vari in enumerate(var_subset.index.values):
             self.pgen.read_dosages(vari, dos[i])
@@ -333,7 +375,204 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         test_grps=grp_ids['test'], test_grp_labels=grp_labels['test'])
 
 # Data creation and loading functions
-def load_data(pg2pd:Optional[PGEN2Pandas], phen_cov:Optional[pd.DataFrame], 
+def linear_change_in_step(old_step:int, evr:float, prev_evr:float, evr_thresh:float, 
+                          max_step:int=5000):
+    """Function to modify the step size based on the change in EVR
+    between the current step and the previous step.
+
+    Parameters
+    ----------
+    old_step : int
+        Previous step size.
+    evr : float
+        Current explained variance ratio.
+    prev_evr : float
+        Previous explained variance ratio.
+    evr_thresh : float
+        Explained variance ratio threshold.
+
+    Returns
+    -------
+    int
+        New step size.
+    """
+    
+    evr_diff = evr - evr_thresh
+    if evr_diff >=0 and evr_diff <= 0.05:
+        return 0
+    
+    prev_evr_diff = evr - prev_evr
+    new_step = int(min(max_step, np.round(np.abs(old_step)*np.abs(evr_diff)/np.abs(prev_evr_diff))))
+    
+    if evr_diff < 0:
+        return -new_step
+    else:
+        return new_step
+
+def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list, 
+                evr_thresh:float=0.95, start_num_snps:int=4000, 
+                step:int=100, num_PCs:int=50) -> pd.DataFrame:
+    """Perform PCA on the genomic region defined by chrom:start-end
+    and return the num_PCs principal components that explains 95% of the
+    variance.
+    
+    Parameters
+    ----------
+    chrom : list
+        List of chromosomes of the genes to include in the dataset.
+        For a single gene pass as a list of a single str.
+    pg2pd : PGEN2Pandas, Union[PGEN2Pandas, str]
+        An object of the type PGEN2Pandas or str which can be passed a
+        chromosome, a start position, and an end position to extract
+        the SNP dosages from a PGEN (PLINK 2.0) file for all samples.
+    train_ids : list
+        List of training sample ids.
+    evr_thresh : float, optional
+        Explained variance ratio threshold, by default 0.95
+        
+    Returns
+    -------
+    pd.DataFrame
+        Pandas dataframe containing the top num_PCs principal components
+        of the genomic region defined by chrom:start-end.
+    """
+    
+    if isinstance(pg2pd, str):
+        pg2pd = PGEN2Pandas(pg2pd, sample_subset=train_ids)
+    print(pg2pd.pvar.shape[0])
+
+    start_i = 0
+    end_i = start_i + start_num_snps
+    pca_list = []
+    chrom_iterate = True
+    
+    while chrom_iterate:
+        prev_evr = evr_thresh
+        evr = 0
+        iterate = True
+        new_step = step
+
+        dm = pd.DataFrame()
+        while iterate:
+            
+            # Stop if number of SNPs exceeds 20_000
+            if end_i-start_i > 20_000 and evr > evr_thresh+0.05:
+                end_i = start_i + 20_000
+                iterate = False
+
+            # Stop if there are no SNPs left
+            if end_i == pg2pd.pvar.shape[0]:
+                iterate = False
+                chrom_iterate = False
+
+            # Load more snps if needed
+            if (end_i-start_i) > dm.shape[1]:
+                dm = pg2pd.get_k_snps_matrix(chrom=chrom, 
+                                    start_i=start_i,
+                                    end_i=end_i+5000)
+                dm.set_index('iid', inplace=True)
+            
+            data_mat = dm.iloc[:, :(end_i-start_i)]
+            
+            pca = cuPCA(n_components=num_PCs)
+            pca.fit(data_mat.astype(np.float32))
+            evr = pca.explained_variance_ratio_.sum()
+            
+            new_step = linear_change_in_step(old_step=new_step,
+                                             evr=evr,
+                                             prev_evr=prev_evr,
+                                             evr_thresh=evr_thresh,
+                                             max_step=data_mat.shape[1]//2)
+            if new_step == 0:
+                iterate = False
+            else:
+                if iterate:
+                    end_i += new_step
+                    end_i = min(end_i, pg2pd.pvar.shape[0])
+                    new_step = min(new_step, pg2pd.pvar.shape[0]-end_i)
+                    print(f'\tEVR = {evr}, changing number of snps by {new_step}')
+            
+            prev_evr = evr
+
+        print(f'Explained variance ratio for SNPs #{start_i}-#{end_i} ' +
+              f'({end_i-start_i} SNPs) using {num_PCs} PCs is {evr:.4f}\n')
+        
+        pca_list.append(
+            {'chrom':chrom, 'start':pg2pd.pvar.iloc[start_i]['POS'], 
+             'end':pg2pd.pvar.iloc[end_i-1]['POS'], 'evr':evr, 
+             'pca':pca})
+        
+        num_snps = end_i - start_i
+        start_i = end_i
+        end_i = min(start_i + num_snps, pg2pd.pvar.shape[0])
+
+    return pca_list
+
+def genomic_region_PCA(chrom:str, start:int, end:int, 
+                       pg2pd:Union[PGEN2Pandas, str], train_ids:list, 
+                       evr_thresh:float=0.95, 
+                       SNP_thresh:int=10000) -> pd.DataFrame:
+    """Perform PCA on the genomic region defined by chrom:start-end
+    and return the num_PCs principal components that explains 95% of the
+    variance.
+    
+    Parameters
+    ----------
+    chrom : list
+        List of chromosomes of the genes to include in the dataset.
+        For a single gene pass as a list of a single str.
+    start: int
+        Start position of the gene. This should not include the buffer
+        because the final start position will be start-buffer.
+    end: int
+        End position of the gene. This should not include the buffer
+        because the final end position will be end+buffer.
+    pg2pd : PGEN2Pandas, Union[PGEN2Pandas, str]
+        An object of the type PGEN2Pandas or str which can be passed a
+        chromosome, a start position, and an end position to extract
+        the SNP dosages from a PGEN (PLINK 2.0) file for all samples.
+    train_ids : list
+        List of training sample ids.
+    evr_thresh : float, optional
+        Explained variance ratio threshold, by default 0.95
+    SNP_thresh : int, optional
+        Maximum number of SNPs. Genes with SNPs greater
+        than this will be dropped, by default 10000
+        
+    Returns
+    -------
+    pd.DataFrame
+        Pandas dataframe containing the top num_PCs principal components
+        of the genomic region defined by chrom:start-end.
+    """
+    
+    if isinstance(pg2pd, str):
+        pg2pd = PGEN2Pandas(pg2pd)
+
+    data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, 
+                                        end=end, SNP_thresh=SNP_thresh)
+    data_mat.set_index('iid', inplace=True)
+    data_mat = data_mat.loc[train_ids]
+    # print(f'Running {chrom}:{start}-{end} {data_mat.shape[1]}')
+    
+    pca = PCA(n_components=min(50, data_mat.shape[1]))
+    embedding = pca.fit_transform(data_mat)
+
+    evr = 0
+    num_PCs = 0
+    for i in range(len(pca.explained_variance_ratio_)):
+        evr += pca.explained_variance_ratio_[i] 
+        num_PCs += 1
+        if evr >= evr_thresh:
+            break
+
+    print(f'Explained variance ratio using {num_PCs} PCs is {evr:.4f}')
+
+    # return embedding[:, :num_PCs]
+    # return embedding[:, :num_PCs], pca
+    return evr, num_PCs, data_mat.shape[1]
+
+def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, buffer:int, label:str, 
               sys_params:dict, covs:list, win:Optional[int]=None, 
               save_data:bool=False, SNP_thresh:int=10000, only_covs:bool=False, 

@@ -10,7 +10,8 @@ import shutil
 import warnings
 from functools import partial
 from typing import Optional
-
+import pickle
+import cuml
 import yaml
 
 warnings.filterwarnings('ignore')
@@ -23,7 +24,8 @@ import scipy.stats as stats
 from sklearn.model_selection import StratifiedShuffleSplit
 
 from GWANN.dataset_utils import (balance_by_agesex, create_groups, group_ages,
-                                 find_num_wins)
+                                 find_num_wins, PGEN2Pandas, genomic_region_PCA,
+                                 genomic_PCA)
 from GWANN.utils import vprint
 
 
@@ -340,6 +342,67 @@ def dosage_percentage():
     plt.savefig('dosage_percentage_dist.png', dpi=100)
     plt.close()
 
+def gene_PCs():
+    # variant_annot = pd.read_csv('/mnt/sdf/annovar_output/UKB_chr2.variant_gene_mapping.csv')
+
+    # variant_annot['start'] = variant_annot['start'].astype(int)
+    # variant_annot['end'] = variant_annot['end'].astype(int)
+    # variant_annot['start'] = variant_annot.groupby('mapped_gene')['start'].transform('min')
+    # variant_annot['end'] = variant_annot.groupby('mapped_gene')['end'].transform('max')
+    # variant_annot['snp_cnt'] = variant_annot.groupby('mapped_gene')['snpid'].transform('count')
+    # variant_annot.drop_duplicates('mapped_gene', inplace=True)
+    # variant_annot.sort_values('snp_cnt', ascending=False, inplace=True)
+
+    # variant_annot = variant_annot.sample(1000)
+
+    # fargs = []
+    # pgen2pd = '/mnt/sdf/GWANN_pgen/UKB_chr2'
+    # for _, row in variant_annot.iterrows():
+    #     fargs.append((pgen2pd, '2', row['start'], row['end'], 0.7, 20_000))
+
+    # # res = []
+    # # for farg in fargs:
+    # #     res.append(genomic_region_PCA(*farg))
+    
+    # with mp.Pool(20) as pool:
+    #     res = pool.starmap(genomic_region_PCA, fargs, chunksize=1)
+    #     pool.close()
+    #     pool.join()
+
+    # df = pd.DataFrame.from_records(res, columns=['EVR', 'num_PCs', 'num_SNPs'])
+    # df.to_csv('chrom2_gene_PCs.csv', index=False)
+
+    chrom = os.environ['CHROM']
+    os.makedirs(f'/mnt/sdf/GWANN_PCA_models/{chrom}', exist_ok=True)
+
+    pgen2pd = f'/mnt/sdf/GWANN_pgen/UKB_chr{chrom}'
+    train_ids_f = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8/train_ids_FH_AD.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_ids = train_ids_df['iid'].to_list()
+
+    pca_list = genomic_PCA(chrom, pgen2pd, train_ids, 0.7, 
+                           start_num_snps=20_000, 
+                           step=100, num_PCs=50)
+    
+    # Loop through and save each PCA model separately
+    fnames = []
+    for d in pca_list:
+        pca = d['pca']
+        
+        chrom = d['chrom']
+        start = d['start']
+        end = d['end']
+        evr = d['evr']
+        
+        fname = f"pca_{chrom}_{start}_{end}.pkl"
+        fnames.append(f'{fname}\t{evr}')
+        
+        with open(f'/mnt/sdf/GWANN_PCA_models/{chrom}/{fname}', 'wb') as f:
+            pickle.dump(pca, f) 
+
+    with open(f'/mnt/sdf/GWANN_PCA_models/{chrom}/metadata.txt', 'w') as f:
+        f.write('\n'.join(fnames))
+
 if __name__ == '__main__':
     
     # 1. Find all train and test ids
@@ -362,7 +425,9 @@ if __name__ == '__main__':
     #         grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
     #     )
     # num_wins_per_gene()
-    for chrom in range(2, 23, 2):
-        print(f'Running chromosome: {chrom}')
-        variant_gene_mapping(str(chrom), '/mnt/sdf/annovar_output')
-        print()
+    # for chrom in range(2, 23, 2):
+    #     print(f'Running chromosome: {chrom}')
+    #     variant_gene_mapping(str(chrom), '/mnt/sdf/annovar_output')
+    #     print()
+
+    gene_PCs()

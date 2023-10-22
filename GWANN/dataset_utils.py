@@ -1,26 +1,22 @@
 # coding: utf-8
 import multiprocessing as mp
 import os
+import pickle
 import traceback
 from functools import partial
 from typing import Optional, Union
 import csv
 
-from numba import jit
-from joblib import Parallel, delayed
-
 import numpy as np
 import pandas as pd
 import pgenlib as pg
 from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
-import cuml
 from cuml.decomposition import PCA as cuPCA
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
 
 from GWANN.utils import vprint
-
 
 class PGEN2Pandas:
     
@@ -117,7 +113,7 @@ class PGEN2Pandas:
         for i, vari in enumerate(var_subset.index.values):
             self.pgen.read_dosages(vari, dos[i])
         
-        dos_df = pd.DataFrame(dos.T.astype(np.float16), 
+        dos_df = pd.DataFrame(dos.T, 
                               columns=var_subset['ID'].values)
         dos_df.insert(0, 'iid', self.psam['IID'].values)
         
@@ -185,7 +181,6 @@ class PGEN2Pandas:
         dos_df = dos_df[[c for c in dos_df.columns if c.startswith('rs')]]
         
         return dos_df
-
 
 # Group Train specific functions
 def group_ages(ages:np.ndarray, num_grps:int) -> np.ndarray:
@@ -436,7 +431,6 @@ def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list,
         Pandas dataframe containing the top num_PCs principal components
         of the genomic region defined by chrom:start-end.
     """
-    
     if isinstance(pg2pd, str):
         pg2pd = PGEN2Pandas(pg2pd, sample_subset=train_ids)
     print(pg2pd.pvar.shape[0])
@@ -571,6 +565,104 @@ def genomic_region_PCA(chrom:str, start:int, end:int,
     # return embedding[:, :num_PCs]
     # return embedding[:, :num_PCs], pca
     return evr, num_PCs, data_mat.shape[1]
+
+def load_region_PC_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
+              gene:str, chrom:str, start:int, end:int, label:str, sys_params:dict, 
+              covs:list, save_data:bool=False, only_covs:bool=False, 
+              preprocess:bool=True, lock:Optional[mp.Lock]=None) -> Optional[tuple]:
+    
+    log_creation = lock is not None
+
+    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
+    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
+    test_labels = test_ids_df[label].to_list()
+    test_ids = test_ids_df['iid'].to_list()
+    
+    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_labels = train_ids_df[label].to_list()
+    train_ids = train_ids_df['iid'].to_list()
+
+    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
+                f'chr{chrom}_{chrom}_{start}-{end}_{label}.csv')
+
+    if os.path.exists(data_path):
+        print(f'[{gene}] Data exists.')
+        data_mat = pd.read_csv(data_path, index_col=0, comment='#')
+        data_mat.index = data_mat.index.astype(str)
+        data_mat = data_mat.loc[train_ids+test_ids]
+        save_data = False
+    else:
+        data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, end=end)
+        if data_mat is None:
+            return None
+        data_mat.set_index('iid', inplace=True)
+        
+        # Transform SNPs into PCs using the pre-saved PCA model
+        pca_model_path = f'{sys_params["PCA_BASE_FOLDER"]}/{chrom}/pca_{chrom}_{start}_{end}.pkl'
+        with open(pca_model_path, 'rb') as f:
+            pca = pickle.load(f)
+        
+        data_mat_PCs = pca.transform(data_mat)
+        print(data_mat_PCs.shape)
+        idx = data_mat.index.values
+        data_mat = pd.DataFrame(data_mat_PCs)
+        data_mat.index = idx
+
+        data_mat = pd.merge(data_mat, phen_cov[covs].loc[data_mat.index], 
+                            left_index=True, right_index=True)
+        data_mat = data_mat.loc[train_ids+test_ids]
+    
+    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
+    data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
+
+    assert not np.any(data_mat.columns.duplicated()), \
+        f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
+    assert not np.any(pd.isna(data_mat)), \
+            f'[{gene}]: Dataframe contains NaN values'
+
+    if only_covs:
+        data_mat = data_mat[covs+[label,]]
+
+    # Save dataframe to disk
+    if save_data:
+        data_mat.to_csv(data_path)
+        print(f'[{gene}] Data written.')
+
+    train_df = data_mat.loc[train_ids]
+    test_df = data_mat.loc[test_ids]
+
+    data_tuple = None
+    if preprocess:
+        data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
+                                    label=label, covs=covs, sys_params=sys_params)    
+        num_PCs = data_tuple[-1]
+    else:
+        data_cols = [c for c in train_df.columns if c!=label]
+        snp_cols = [c for c in data_cols if c not in covs]
+        num_PCs = len(snp_cols)
+
+    if log_creation and save_data:
+        try:
+            lock.acquire()
+            data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
+            header = ['Gene', 'chrom', 'start', 'end', 'num_snps', 'label']
+            data_info = [gene, chrom, str(start), str(end), num_PCs, label]
+            if os.path.isfile(data_stats_f):
+                rows = [data_info]
+            else:
+                rows = [header, data_info]
+        
+            with open(data_stats_f, 'a') as f:
+                writer = csv.writer(f)
+                writer.writerows(rows)
+        
+        except Exception as e:
+            raise e
+        finally:
+            lock.release()
+    
+    return data_tuple
 
 def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, buffer:int, label:str, 

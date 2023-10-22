@@ -112,6 +112,8 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
 def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
     comb_summ_df = []
     for chrom in chroms:
+        if chrom == 20:
+            continue
         summ_df = pd.read_csv(
                     f'./NN_Logs/'+
                     f'Chr{chrom}_{label}_Chr{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
@@ -354,9 +356,9 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'Sens8_v4_avg'
-    # combine_chrom_summ_stats(list(range(1, 23, 1)), 
-    #                          label=label, exp_name=exp_name)
+    exp_name = 'GenePCA_00_GS10_v1'
+    combine_chrom_summ_stats(list(range(2, 23, 2)), 
+                             label=label, exp_name=exp_name)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='Loss', greater_is_better=False)
     # calculate_p_values(label=label, exp_name=exp_name, 
@@ -366,5 +368,5 @@ if __name__ == '__main__':
     
     # manhattan(label=label, exp_name=exp_name, metric='Loss')
     # mine_agora(exp_name)
-    hit_gene_win_snps(label=label, exp_name=exp_name, 
-                       metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')
+    # hit_gene_win_snps(label=label, exp_name=exp_name, 
+    #                    metric='Loss', pgen_data_base='/mnt/sdf/GWANN_pgen')

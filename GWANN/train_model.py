@@ -1,4 +1,8 @@
 # coding: utf-8
+from GWANN.dataset_utils import PGEN2Pandas, load_data, load_region_PC_data
+from GWANN.train_utils import create_train_plots, train
+from GWANN.models import Diff, Identity
+
 import csv
 import datetime
 import os
@@ -19,10 +23,6 @@ import torch.nn as nn
 import yaml
 import shap
 import time
-
-from GWANN.dataset_utils import PGEN2Pandas, load_data
-from GWANN.train_utils import create_train_plots, train
-from GWANN.models import Diff, Identity
 
 class FullModel(torch.nn.Module):
     """
@@ -202,12 +202,19 @@ class Experiment:
         win = gene_dict['win'] if 'win' in gene_dict else None
 
         self.__set_genotypes_and_covariates__(chrom=chrom)
-        data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
-                        chrom=chrom, start=start, end=end, buffer=self.buffer, 
-                        label=self.label, sys_params=self.sys_params, 
-                        covs=self.covs, win=win, save_data=False, 
-                        SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+        # data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+        #                 chrom=chrom, start=start, end=end, buffer=self.buffer, 
+        #                 label=self.label, sys_params=self.sys_params, 
+        #                 covs=self.covs, win=win, save_data=False, 
+        #                 SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+        #                 lock=None)
+        
+        data = load_region_PC_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+                        chrom=chrom, start=start, end=end, label=self.label, 
+                        sys_params=self.sys_params, covs=self.covs, 
+                        save_data=False, only_covs=only_covs, preprocess=True, 
                         lock=None)
+
         return data
 
     def __load_cov_encodings__(self) -> Optional[dict]:
@@ -281,19 +288,23 @@ class Experiment:
             not, by default True
         """
         with lock:
-            device = int(shared_gpu_stack.pop(0))
+            gpu_dev = int(shared_gpu_stack.pop(0))
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_dev)
+        device = 0
 
         gene = gene_dict['gene']
         chrom = gene_dict['chrom']
         if 'win' in gene_dict:
             gene = f'{gene}_{gene_dict["win"]}'
 
-        print(f'Running {gene} on gpu: {device}')
+        print(f'Running {gene} on gpu: {gpu_dev}')
 
         try:
             # Load the data
             data_tuple = self.__gen_data__(gene_dict=gene_dict, 
                                            only_covs=self.only_covs)
+            print(f'{gene:20} Data loaded')
+
             if data_tuple is None:
                 with open(self.NONE_DATA_FILE, 'a') as f:
                     f.write(f'{gene} has no data file!!\n')
@@ -377,7 +388,7 @@ class Experiment:
                 errf.write(traceback.format_exc() + '\n\n')
         finally:
             with lock:
-                shared_gpu_stack.append(device)
+                shared_gpu_stack.append(gpu_dev)
 
     def __write_gene_summary_row__(self, gene:str, chrom:str, num_snps:int, 
                                    time_taken:str, lock:mp.Lock, 

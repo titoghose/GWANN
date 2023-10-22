@@ -28,7 +28,6 @@ from adjustText import adjust_text
 import seaborn as sns
 
 from GWANN.models import *
-from GWANN.models import *
 from GWANN.dataset_utils import *
 
 from sklearn.metrics import roc_auc_score, f1_score
@@ -842,6 +841,7 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
             Best test set accuracy 
             Best train set accuracy
     """
+    print(torch.cuda.device_count())
     torch.cuda.set_device(device)
     res = start_training(
         X=X, y=y, X_test=X_test, y_test=y_test, model_dict=model_dict, 

@@ -373,15 +373,16 @@ def gene_PCs():
     # df.to_csv('chrom2_gene_PCs.csv', index=False)
 
     chrom = os.environ['CHROM']
-    os.makedirs(f'/mnt/sdf/GWANN_PCA_models/{chrom}', exist_ok=True)
+    pca_folder = f'/mnt/sdf/GWANN_PCA_models/EVR_0.9/{chrom}'
+    os.makedirs(pca_folder, exist_ok=True)
 
     pgen2pd = f'/mnt/sdf/GWANN_pgen/UKB_chr{chrom}'
     train_ids_f = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8/train_ids_FH_AD.csv'
     train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
     train_ids = train_ids_df['iid'].to_list()
 
-    pca_list = genomic_PCA(chrom, pgen2pd, train_ids, 0.7, 
-                           start_num_snps=20_000, 
+    pca_list = genomic_PCA(chrom, pgen2pd, train_ids, evr_thresh=0.9, 
+                           start_num_snps=10_000, 
                            step=100, num_PCs=50)
     
     # Loop through and save each PCA model separately
@@ -397,10 +398,10 @@ def gene_PCs():
         fname = f"pca_{chrom}_{start}_{end}.pkl"
         fnames.append(f'{fname}\t{evr}')
         
-        with open(f'/mnt/sdf/GWANN_PCA_models/{chrom}/{fname}', 'wb') as f:
+        with open(f'{pca_folder}/{fname}', 'wb') as f:
             pickle.dump(pca, f) 
 
-    with open(f'/mnt/sdf/GWANN_PCA_models/{chrom}/metadata.txt', 'w') as f:
+    with open(f'{pca_folder}/metadata.txt', 'w') as f:
         f.write('\n'.join(fnames))
 
 if __name__ == '__main__':

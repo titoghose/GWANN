@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 import pgenlib as pg
 from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
-from cuml.decomposition import PCA as cuPCA
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
@@ -431,6 +430,8 @@ def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list,
         Pandas dataframe containing the top num_PCs principal components
         of the genomic region defined by chrom:start-end.
     """
+    from cuml.decomposition import PCA as cuPCA
+    
     if isinstance(pg2pd, str):
         pg2pd = PGEN2Pandas(pg2pd, sample_subset=train_ids)
     print(pg2pd.pvar.shape[0])
@@ -468,7 +469,7 @@ def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list,
             
             data_mat = dm.iloc[:, :(end_i-start_i)]
             
-            pca = cuPCA(n_components=num_PCs)
+            pca = cuPCA(n_components=num_PCs, svd_solver='jacobi', verbose=3)
             pca.fit(data_mat.astype(np.float32))
             evr = pca.explained_variance_ratio_.sum()
             
@@ -487,7 +488,7 @@ def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list,
                     print(f'\tEVR = {evr}, changing number of snps by {new_step}')
             
             prev_evr = evr
-
+            
         print(f'Explained variance ratio for SNPs #{start_i}-#{end_i} ' +
               f'({end_i-start_i} SNPs) using {num_PCs} PCs is {evr:.4f}\n')
         

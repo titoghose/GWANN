@@ -57,13 +57,15 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
 
     prefix = label + '_Chr' + exp_name
 
-    cov_model_id = f'{prefix.replace("Chr", "Cov")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/22:16488635-18622343/0_22:16488635-18622343.pt'
+    cov_model = sys_params["PCA_COV_MODEL"]    
+    cov_model_id = f'{prefix.replace("Chr", "Cov")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/{cov_model}'
     cov_model_path = '{}/{}'.format(sys_params["LOGS_BASE_FOLDER"], cov_model_id)
 
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
                      hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
                      cov_model_path=cov_model_path, grp_size=grp_size)
+    exp.SNP_THRESH = 25_000
     
     if not shap_plots:
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
@@ -123,16 +125,18 @@ if __name__ == '__main__':
     parser.add_argument('-v', type=int, default=0)
     parser.add_argument('--label', type=str, required=True)
     parser.add_argument('--chrom', type=str, required=True)
+    parser.add_argument('--version', type=str, required=True)
     args = parser.parse_args()
     label = args.label
     chrom = args.chrom
+    v = args.version
     
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/rerun_GenePCA'
-    gpu_list = list(np.tile([0, 1, 2, 3, 4], 1))
+    param_folder=f'/home/upamanyu/GWANN/Code_AD/params/rerun_GenePCA_{v}'
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 2))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'GenePCA_{torch_seed}{random_seed}_GS{grp_size}_v1'
+    exp_name = f'GenePCA_{torch_seed}{random_seed}_GS{grp_size}_{v}'
     regions = get_chrom_intervals(chrom, param_folder)
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 

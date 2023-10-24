@@ -356,8 +356,8 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
 
 if __name__ == '__main__':
     label = 'FH_AD'
-    exp_name = 'GenePCA_00_GS10_v1'
-    combine_chrom_summ_stats(list(range(2, 23, 2)), 
+    exp_name = 'GenePCA_00_GS10_v2'
+    combine_chrom_summ_stats(list(range(1, 23, 1)), 
                              label=label, exp_name=exp_name)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='Loss', greater_is_better=False)

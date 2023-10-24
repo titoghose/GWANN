@@ -212,8 +212,8 @@ class Experiment:
         data = load_region_PC_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
                         chrom=chrom, start=start, end=end, label=self.label, 
                         sys_params=self.sys_params, covs=self.covs, 
-                        save_data=False, only_covs=only_covs, preprocess=True, 
-                        lock=None)
+                        save_data=False, SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+                        preprocess=True, lock=None)
 
         return data
 
@@ -261,6 +261,7 @@ class Experiment:
             gdict = {k:genes[k][gene_num] for k in genes.keys()}
             func_args.append((shared_gpu_stack, gdict, lock, True, None))
 
+        # self.train_gene(*func_args[0])
         with mp.get_context('spawn').Pool(len(self.GPU_LIST)) as pool:
             pool.starmap(self.train_gene, func_args, chunksize=1)
             pool.close()

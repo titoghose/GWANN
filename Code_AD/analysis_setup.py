@@ -373,10 +373,10 @@ def gene_PCs():
     # df.to_csv('chrom2_gene_PCs.csv', index=False)
 
     chrom = os.environ['CHROM']
-    pca_folder = f'/mnt/sdf/GWANN_PCA_models/EVR_0.9/{chrom}'
+    pca_folder = f'/mnt/sdd/GWANN_PCA_models/EVR_0.9/{chrom}'
     os.makedirs(pca_folder, exist_ok=True)
 
-    pgen2pd = f'/mnt/sdf/GWANN_pgen/UKB_chr{chrom}'
+    pgen2pd = f'/mnt/sdd/GWANN_pgen/UKB_chr{chrom}'
     train_ids_f = '/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8/train_ids_FH_AD.csv'
     train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
     train_ids = train_ids_df['iid'].to_list()

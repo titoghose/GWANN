@@ -167,8 +167,8 @@ def model_pipeline(label:str, param_folder:str, gpu_list:list,
             buffer=2500, model=model, model_dict=model_dict, hp_dict=hp_dict, 
             gpu_list=gpu_list, only_covs=True, grp_size=grp_size)
 
-    genes = {'gene':['22:16488635-18622343', '22:18622691-21971296'], 'chrom':['22', '22'], 
-             'start':[16488635, 18622691], 'end':[18622343, 21971296]}
+    genes = {'gene':['22:16488635-17661178', '22:17661347-17955597'], 'chrom':['22', '22'], 
+             'start':[16488635, 17661347], 'end':[17661178, 17955597]}
     print(genes)
 
     exp.parallel_run(genes)

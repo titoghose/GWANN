@@ -469,7 +469,8 @@ def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list,
             
             data_mat = dm.iloc[:, :(end_i-start_i)]
             
-            pca = cuPCA(n_components=num_PCs, svd_solver='jacobi', verbose=3)
+            pca = cuPCA(n_components=min(num_PCs, data_mat.shape[1]), 
+                        svd_solver='jacobi', verbose=3)
             pca.fit(data_mat.astype(np.float32))
             evr = pca.explained_variance_ratio_.sum()
             
@@ -569,7 +570,7 @@ def genomic_region_PCA(chrom:str, start:int, end:int,
 
 def load_region_PC_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, label:str, sys_params:dict, 
-              covs:list, save_data:bool=False, only_covs:bool=False, 
+              covs:list, save_data:bool=False, SNP_thresh:int=25000, only_covs:bool=False, 
               preprocess:bool=True, lock:Optional[mp.Lock]=None) -> Optional[tuple]:
     
     log_creation = lock is not None
@@ -594,7 +595,8 @@ def load_region_PC_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.Data
         data_mat = data_mat.loc[train_ids+test_ids]
         save_data = False
     else:
-        data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, end=end)
+        data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, end=end, 
+                                           SNP_thresh=SNP_thresh)
         if data_mat is None:
             return None
         data_mat.set_index('iid', inplace=True)

@@ -192,12 +192,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     label = args.label
     
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/rerun_GenePCA'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/rerun_GenePCA_v2'
     gpu_list = [3, 4]
-    grp_size = 10
+    grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'GenePCA_{torch_seed}{random_seed}_GS{grp_size}_v1'
+    exp_name = f'GenePCA_{torch_seed}{random_seed}_GS{grp_size}_v2'
+    # print(exp_name)
     model_pipeline(label=label, param_folder=param_folder,
                     gpu_list=gpu_list, exp_name=exp_name, 
                     grp_size=grp_size)

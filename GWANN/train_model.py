@@ -202,18 +202,18 @@ class Experiment:
         win = gene_dict['win'] if 'win' in gene_dict else None
 
         self.__set_genotypes_and_covariates__(chrom=chrom)
-        # data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
-        #                 chrom=chrom, start=start, end=end, buffer=self.buffer, 
-        #                 label=self.label, sys_params=self.sys_params, 
-        #                 covs=self.covs, win=win, save_data=False, 
-        #                 SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
-        #                 lock=None)
+        data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+                        chrom=chrom, start=start, end=end, buffer=self.buffer, 
+                        label=self.label, sys_params=self.sys_params, 
+                        covs=self.covs, win=win, save_data=False, 
+                        SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+                        lock=None)
         
-        data = load_region_PC_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
-                        chrom=chrom, start=start, end=end, label=self.label, 
-                        sys_params=self.sys_params, covs=self.covs, 
-                        save_data=False, SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
-                        preprocess=True, lock=None)
+        # data = load_region_PC_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
+        #                 chrom=chrom, start=start, end=end, label=self.label, 
+        #                 sys_params=self.sys_params, covs=self.covs, 
+        #                 save_data=False, SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
+        #                 preprocess=True, lock=None)
 
         return data
 

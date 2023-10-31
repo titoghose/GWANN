@@ -559,25 +559,25 @@ def sensitivity_8():
     gdf.sort_index(inplace=True)
     glist = gdf.index.to_list()
 
-    gpu_list = list(np.tile([1, 2, 3, 4], 5))
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
     for label in ['FH_AD']:
         for grp_size in [int(os.environ['GROUP_SIZE'])]:
                 torch_seed=int(os.environ['TORCH_SEED'])
                 random_seed=int(os.environ['GROUP_SEED'])
                 exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
                 
-                cov_model.model_pipeline(label=label, param_folder=param_folder,
-                                         gpu_list=gpu_list[:2], exp_name=exp_name, 
-                                         grp_size=grp_size)
+                # cov_model.model_pipeline(label=label, param_folder=param_folder,
+                #                          gpu_list=gpu_list[:2], exp_name=exp_name, 
+                #                          grp_size=grp_size)
                 
                 # run_genes.model_pipeline(exp_name=exp_name, label=label, 
                 #             param_folder=param_folder, gpu_list=gpu_list,
                 #             glist=glist, grp_size=grp_size, shap_plots=False)
                 
                 # dummy_genes.create_dummy_pgen(param_folder=param_folder, label=label)
-                # dummy_genes.model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 
-                #             param_folder=param_folder, gpu_list=gpu_list, 
-                #             grp_size=grp_size)
+                dummy_genes.model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 
+                            param_folder=param_folder, gpu_list=gpu_list, 
+                            grp_size=grp_size)
 
 
 if __name__ == '__main__':

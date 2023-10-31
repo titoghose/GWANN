@@ -10,7 +10,7 @@ disgenet_api_key <- ""
 Sys.setenv(DISGENET_API_KEY=disgenet_api_key)
 # ---------------------------------------------------------------------------- #
 
-nnHits = read.table("../results_Sens8_v4_avg/hits.txt", header=T)
+nnHits = read.table("../results_Sens8_v4_avg/gene_hits.csv", header=T)
 res_enrich <- disease_enrichment(entities = nnHits$Gene, vocabulary = "HGNC", database = "ALL")
 # res_enrich_cur <- disease_enrichment(entities = nnHits$V1, vocabulary = "HGNC", database = "CURATED")
 

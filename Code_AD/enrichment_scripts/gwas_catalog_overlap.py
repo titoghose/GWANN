@@ -33,7 +33,7 @@ def group_AD_related_traits(gwas_all_assoc) -> pd.DataFrame:
 
 overlap_path = '../results_Sens8_v4_avg/enrichments/gwas_catalog_overlap.csv'
 if not os.path.exists(overlap_path):
-    gwas_all_assoc = pd.read_csv('/mnt/sdb/GWAS_Catalog_AD/gwas_catalog_v1.0-associations_e110_r2023-07-29.tsv', 
+    gwas_all_assoc = pd.read_csv('/mnt/sdd/enrichment_data/gwas_catalog_v1.0-associations_e110_r2023-07-29.tsv', 
                                 sep='\t', dtype={'MAPPED_GENE':str, 'REPORTED GENE(S)':str}, 
                                 keep_default_na=False)
 
@@ -57,7 +57,7 @@ if not os.path.exists(overlap_path):
     print('hello')
 
     # Overlap with GWANN hits
-    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4_avg/hits.txt')
+    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4_avg/gene_hits.csv')
     nn_AD_genes = nn_AD_hits['Gene'].to_list()
 
     gwas_AD_overlap = gwas_AD_assoc.loc[gwas_AD_assoc['Gene'].isin(nn_AD_genes)]

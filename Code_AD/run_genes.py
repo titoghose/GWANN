@@ -216,6 +216,7 @@ if __name__ == '__main__':
     random_seed=int(os.environ['GROUP_SEED'])
     exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
     glist = get_chrom_glist(chrom)
+    glist = ['TCERG1L', 'TECTB', 'TDRD1', 'TET1', 'TFAM', 'TEX36', 'TIAL1', 'TLL2', 'THNSL1']
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 
                    gpu_list=gpu_list, glist=glist, 

@@ -358,7 +358,8 @@ class Experiment:
 
             # If saved model exists, then skip retraining
             model_ckpt = f'{gene_dir}/{model_dict["model_name"]}.pt'
-            if not os.path.isfile(model_ckpt):
+            train_plot = f'{gene_dir}/train_plot_loss.png'
+            if not os.path.isfile(train_plot):
                 
                 with open(self.TRAIN_FILE, 'a') as f:
                     f.write(f'{gene:20} Training start\n')

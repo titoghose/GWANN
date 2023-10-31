@@ -19,10 +19,9 @@ sys.path.append('..')
 from GWANN.dataset_utils import get_win_snps
 
 class EstimatePValue:
-    def __init__(self, null_accs:np.ndarray, greater_is_better:bool) -> None:
+    def __init__(self, null_accs:np.ndarray) -> None:
         self.null_accs = null_accs
         self.moments = skewnorm.fit(null_accs)
-        self.greater_is_better = greater_is_better
     
     def plot_null_dist(self, plot_path:Optional[str]=None) -> None:
         
@@ -60,10 +59,6 @@ class EstimatePValue:
 
     def estimate(self, acc:float) -> float:
         return skewnorm.sf(acc, *self.moments)
-        # if self.greater_is_better:
-        #     return skewnorm.sf(acc, *self.moments)
-        # else:
-        #     return skewnorm.cdf(acc, *self.moments)
 
 def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bool):
     if not os.path.exists(f'./results_{exp_name}'):
@@ -74,11 +69,9 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
         f'{label}_ChrDummy{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
         f'{label}_ChrDummy{exp_name}_2500bp_summary.csv')
     if greater_is_better:
-        ep = EstimatePValue(null_accs=null_df[metric].values, 
-                            greater_is_better=greater_is_better)
+        ep = EstimatePValue(null_accs=null_df[metric].values)
     else:
-        ep = EstimatePValue(null_accs=-1*null_df[metric].values, 
-                            greater_is_better=greater_is_better)
+        ep = EstimatePValue(null_accs=-1*null_df[metric].values)
     ep.plot_null_dist(f'./results_{exp_name}/{label}_{metric}_null_dist.png')
 
     summ_df = pd.read_csv(
@@ -355,14 +348,17 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
     gene_pair_ld.to_csv(f'./results_{exp_name}/LD/gene_pair_LD.csv', index=False)
 
 if __name__ == '__main__':
-    label = 'FH_AD'
-    exp_name = 'GenePCA_00_GS10_v2'
-    combine_chrom_summ_stats(list(range(1, 23, 1)), 
-                             label=label, exp_name=exp_name)
-    # calculate_p_values(label=label, exp_name=exp_name, 
-    #                    metric='Loss', greater_is_better=False)
-    # calculate_p_values(label=label, exp_name=exp_name, 
-    #                    metric='Acc', greater_is_better=True)
+    for rseed in [0]:
+        label = 'FH_AD'
+        exp_name = f'Sens8_{rseed}{rseed}_GS10_v4'
+        print(exp_name)
+
+        combine_chrom_summ_stats(list(range(1, 23, 1)), 
+                                label=label, exp_name=exp_name)
+        calculate_p_values(label=label, exp_name=exp_name, 
+                       metric='Acc', greater_is_better=True)
+        # calculate_p_values(label=label, exp_name=exp_name, 
+        #                    metric='Loss', greater_is_better=False)
     # calculate_p_values(label=label, exp_name=exp_name, 
     #                    metric='ROC_AUC', greater_is_better=True)
     

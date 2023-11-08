@@ -31,97 +31,6 @@ class AttentionMask1(nn.Module):
         
         return elemwise_prod
 
-class _GWANNet5(nn.Module):
-    """Attention applied to GroupTrain model after the encoding created
-    by the CNN layer and Avg Pooling.
-
-    Parameters
-    ----------
-    nn : [type]
-        [description]
-    """
-    def __init__(self, grp_size, enc, inp, h, d, out, activation, 
-                 att_model, att_activ):
-        super(GWANNet5, self).__init__()
-
-        self.grp_size = grp_size
-        self.snp_enc = nn.Conv1d(inp, enc, 1)
-        self.pool_ind = nn.AvgPool1d(grp_size)        
-        self.att_mask = att_model(att_activ)
-        # self.pool_features = nn.AdaptiveMaxPool1d(32)
-        self.snps_model = nn.Sequential(
-            BasicNN(enc, h, d, out, activation),
-            nn.ReLU(),
-            nn.BatchNorm1d(out))
-        self.att_out = None
-        self.num_snps = inp
-        
-        # For T2D and AD
-        self.end_model = BasicNN(16, [16, 8], [0.1, 0.1], 2, nn.ReLU)
-        
-    def forward(self, x):
-        snps_enc = self.snp_enc(torch.transpose(x[:, :, :self.num_snps], 1, 2))
-        snps_pooled = torch.squeeze(self.pool_ind(snps_enc), dim=-1)
-        self.att_out = self.att_mask(snps_pooled)
-        # self.att_out.requires_grad_(True)
-        # features_pooled = self.pool_features(
-        #     torch.unsqueeze(self.att_out, dim=1))
-        snps_out = self.snps_model(torch.squeeze(self.att_out, dim=1))
-        
-        cov_out = torch.mean(x[:, :, self.num_snps:], dim=1)
-        
-        data_vec = torch.cat((snps_out, cov_out), dim=-1)
-        
-        raw_out = self.end_model(data_vec)
-        
-        return raw_out
-
-class __GWANNet5(torch.nn.Module):
-    """
-    """
-    def __init__(self, grp_size, enc, snps, covs, h, d, out, activation, 
-                 att_model):
-        super(GWANNet5, self).__init__()
-
-        self.grp_size = grp_size
-        self.snp_enc = nn.Conv1d(snps, enc, 1)
-        self.snp_pool = nn.AvgPool1d(grp_size)        
-        self.snp_mask = att_model()
-        self.snp_model = nn.Sequential(
-            BasicNN(enc, h, d, out, activation),
-            nn.ReLU(),
-            nn.BatchNorm1d(out))
-        
-        self.cov_enc = nn.Conv1d(covs, enc, 1)
-        self.cov_pool = nn.AvgPool1d(grp_size)
-        self.cov_mask = att_model()
-        self.cov_model = nn.Sequential(
-            BasicNN(enc, h, d, out, activation),
-            nn.ReLU(),
-            nn.BatchNorm1d(out))
-        
-        self.num_snps = snps
-        
-        # For T2D and AD
-        self.end_model = BasicNN(16, [16, 8], [0.1, 0.1], 1, nn.ReLU)
-
-    def forward(self, x):
-        snp_enc = self.snp_enc(torch.transpose(x[:, :, :self.num_snps], 1, 2))
-        snp_pooled = torch.squeeze(self.snp_pool(snp_enc), dim=-1)
-        snp_att_out = self.snp_mask(snp_pooled)
-        snp_out = self.snp_model(torch.squeeze(snp_att_out, dim=1))
-        
-        cov_enc = self.cov_enc(torch.transpose(x[:, :, self.num_snps:], 1, 2))
-        cov_pooled = torch.squeeze(self.cov_pool(cov_enc), dim=-1)
-        cov_att_out = self.cov_mask(cov_pooled)
-        cov_out = self.cov_model(torch.squeeze(cov_att_out, dim=1))
-
-        data_vec = torch.cat((snp_out, cov_out), dim=-1)
-        
-        raw_out = self.end_model(data_vec)
-        
-        return raw_out
-
 class GWANNet5(torch.nn.Module):
     """
     """
@@ -217,3 +126,60 @@ class BasicNN(nn.Module):
             X = l(drop(bnorm(activ(X))))
             
         return X
+
+class MLP(nn.Module):
+    class Block(nn.Module):
+        def __init__(self, d_in:int, d_out:int, activation:str, dropout:float):
+            super().__init__()
+            self.linear = nn.Linear(d_in, d_out)
+            self.activation = getattr(nn, activation)()
+            self.dropout = nn.Dropout(dropout)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.dropout(self.activation(self.linear(x)))
+            
+    def __init__(self, d_in:int, d_out:int, d_layers:list, dropout:float=0.1, 
+                    activation:str='ReLU'):
+        super(MLP, self).__init__()
+
+        self.blocks = nn.Sequential(
+            *[
+                MLP.Block(
+                    d_in=d_layers[i - 1] if i else d_in,
+                    d_out=d,
+                    activation=activation,
+                    dropout=dropout,
+                )
+                for i, d in enumerate(d_layers)
+            ]
+        )
+        
+        self.head = None
+        if d_out >= 1:
+            self.head = nn.Linear(d_layers[-1], d_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.blocks(x)
+        if self.head is not None:
+            x = self.head(x)
+        return x
+
+class BranchedMLP(torch.nn.Module):
+    def __init__(self, d_snps:int, d_layers:list, d_out:int, 
+                 cov_branch:MLP, dropout:float=0.1, 
+                 activation:str='ReLU'):
+        super(BranchedMLP, self).__init__()
+
+        self.d_snps = d_snps
+        self.snp_branch = MLP(d_snps, -1, d_layers, dropout, activation)
+        self.cov_branch = cov_branch
+        self.cov_branch.head = None
+        cov_model_out = self.cov_branch.blocks[-1].linear.out_features
+
+        self.head = nn.Linear(d_layers[-1] + cov_model_out, d_out)
+
+    def forward(self, x:torch.Tensor) -> torch.Tensor:
+        snp_enc = self.snp_branch(x[:, :self.d_snps])
+        cov_enc = self.cov_branch(x[:, self.d_snps:])
+        out = self.head(torch.cat((snp_enc, cov_enc), dim=-1))
+        return out

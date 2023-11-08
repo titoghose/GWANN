@@ -1,7 +1,7 @@
 # coding: utf-8
-from GWANN.dataset_utils import PGEN2Pandas, load_data, load_region_PC_data
+from GWANN.dataset_utils import PGEN2Pandas, load_data
 from GWANN.train_utils import create_train_plots, train
-from GWANN.models import Diff, Identity
+from GWANN.models import Diff, Identity, MLP, BranchedMLP
 
 import csv
 import datetime
@@ -49,8 +49,7 @@ class FullModel(torch.nn.Module):
 class Experiment:
     def __init__(self, prefix:str, label:str, params_base:str, buffer:int, 
                  model:nn.Module, model_dict:dict, hp_dict:dict, 
-                 gpu_list:list, only_covs:bool, cov_model_path:Optional[str]=None, 
-                 grp_size:int=10):
+                 gpu_list:list, only_covs:bool):
 
         # Experiment descriptive parameters
         self.prefix = prefix
@@ -75,13 +74,8 @@ class Experiment:
         self.model = model
         self.model_params = model_dict
         self.hyperparam_dict = hp_dict
-        self.grp_size = grp_size
         self.model_dir = ''
         self.summary_f = ''
-        self.perms = 0
-        self.perm_batch_size = 1024
-        self.cov_model_path = cov_model_path
-        self.cov_model = None
 
         self.__set_paths__()
 
@@ -89,12 +83,12 @@ class Experiment:
         self.SNP_THRESH = 10000
         self.pg2pd = None
         self.phen_cov = None
-        self.only_covs = only_covs
         # self.cov_encodings = self.__load_cov_encodings__()
 
         # Training parameters
         self.GPU_LIST = gpu_list
         self.gene_type = ''
+        self.only_covs = only_covs
     
     def __set_params__(self):
 
@@ -123,26 +117,21 @@ class Experiment:
         if not os.path.isdir(self.RUN_FOLDER):
             os.mkdir(self.RUN_FOLDER)
         
-        model_train_params = 'LR:{}_BS:{}_Optim:{}'.format(
+        model_train_params = 'LR:{}_Optim:{}'.format(
             hp_dict['lr'], 
-            hp_dict['batch'], 
             hp_dict['optimiser'])
         
         model_id = '{}_{}_{}_Dr_{}_{}'.format(
             self.prefix, 
             self.model.__name__, 
-            '['+','.join([str(h) for h in self.model_params['h']])+']', 
-            self.model_params['d'][0], 
+            '['+','.join([str(h) for h in self.model_params['d_layers']])+']', 
+            self.model_params['dropout'], 
             model_train_params)
         
         model_dir = '{}/{}'.format(
             self.sys_params['LOGS_BASE_FOLDER'], 
             model_id)
         self.model_dir = model_dir
-        
-        if self.cov_model_path is not None:
-            self.cov_model = torch.load(self.cov_model_path, map_location='cpu')
-            self.cov_model.end_model.linears[-1] = Identity()
         
         self.summary_f = '{}/{}_{}bp_summary.csv'.format(
                 self.model_dir, self.prefix, self.buffer)
@@ -152,15 +141,11 @@ class Experiment:
     def __set_genotypes_and_covariates__(self, chrom:str) -> None:
         pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
         
-        test_ids_f = f'{self.sys_params["PARAMS_PATH"]}/test_ids_{self.label}.csv'
-        test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
-        test_ids = test_ids_df['iid'].to_list()
-    
-        train_ids_f = f'{self.sys_params["PARAMS_PATH"]}/train_ids_{self.label}.csv'
-        train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
-        train_ids = train_ids_df['iid'].to_list()
-        
-        self.pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=train_ids+test_ids)
+        ids_f = f'{self.sys_params["PARAMS_PATH"]}/all_ids_{self.label}.csv'
+        ids_df = pd.read_csv(ids_f, dtype={'iid':str})
+        ids = ids_df['iid'].to_list()
+
+        self.pg2pd = PGEN2Pandas(pgen_prefix, sample_subset=ids)
         
         self.phen_cov = pd.read_csv(self.sys_params['PHEN_COV_PATH'], 
                             sep=' ', dtype={'ID_1':str}, comment='#')
@@ -209,12 +194,6 @@ class Experiment:
                         SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
                         lock=None)
         
-        # data = load_region_PC_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
-        #                 chrom=chrom, start=start, end=end, label=self.label, 
-        #                 sys_params=self.sys_params, covs=self.covs, 
-        #                 save_data=False, SNP_thresh=self.SNP_THRESH, only_covs=only_covs, 
-        #                 preprocess=True, lock=None)
-
         return data
 
     def __load_cov_encodings__(self) -> Optional[dict]:
@@ -311,28 +290,31 @@ class Experiment:
                     f.write(f'{gene} has no data file!!\n')
                 return
             
-            X, y, X_test, y_test, cw, data_cols, num_snps = data_tuple
+            X, y, X_test, y_test, X_val, y_val, cw, data_cols, num_snps = data_tuple
             if self.only_covs:
                 assert num_snps == 0
                 assert len(data_cols) == len(self.covs)
 
-            print(f'{gene:20} Group train data: {X.shape}')
-            print(f'{gene:20} Group test data: {X_test.shape}')
+            print(f'{gene:20} Train data: {X.shape}')
+            print(f'{gene:20} Test data: {X_test.shape}')
+            print(f'{gene:20} Val data: {X_val.shape}')
             print(f'{gene:20} Class weights: {cw}')
+
+            data = {
+                'train': (X, y), 
+                'test': (X_test, y_test), 
+                'val': (X_val, y_val)}
 
             # Model Parameters
             model_dict = {}
             model_dict['model_name'] = f'{num_snps}_{gene}'
-            
-            if not self.only_covs:
-                self.model_params['snps'] = num_snps
-                self.model_params['cov_model'] = self.cov_model
-            else:
-                self.model_params['inp'] = len(self.covs)
-            
             model_dict['model_type'] = self.model
+            if self.model.__name__ == 'MLP':
+                self.model_params['d_in'] = X.shape[-1]
+            elif self.model.__name__ == 'BranchedMLP':
+                self.model_params['d_snps'] = num_snps
             model_dict['model_args'] = self.model_params
-        
+            
             # Optimiser Parameters
             optim_dict = {}
             optim_dict['LR'] = self.hyperparam_dict['lr'] 
@@ -343,9 +325,11 @@ class Experiment:
 
             # Training Parameters
             train_dict = {}
-            train_dict['batch_size'] = self.hyperparam_dict['batch']
+            train_dict['train_batch_size'] = self.hyperparam_dict['train_batch_size']
+            train_dict['infer_batch_size'] = self.hyperparam_dict['infer_batch_size']
             train_dict['epochs'] = self.hyperparam_dict['epochs']
             train_dict['early_stopping'] = self.hyperparam_dict['early_stopping']
+            train_dict['freeze_covs'] = self.hyperparam_dict['freeze_covs']
 
             # Create all folders needed for saving training information
             if log:
@@ -366,9 +350,9 @@ class Experiment:
 
                 # Train the NN on the gene
                 st = datetime.datetime.now()
-                res = train(X=X, y=y, X_test=X_test, y_test=y_test, 
-                            model_dict=model_dict, optim_dict=optim_dict, 
-                            train_dict=train_dict, device=device)
+                res = train(data=data, model_dict=model_dict, 
+                            optim_dict=optim_dict, train_dict=train_dict, 
+                            device=device)
                 et = datetime.datetime.now()
                 
                 with open(self.TRAIN_FILE, 'a') as f:
@@ -380,7 +364,7 @@ class Experiment:
                 
             # Make training plots
             create_train_plots(gene_dir, 'acc', suffix='acc', sweight=0.0)
-            create_train_plots(gene_dir, 'roc_auc', suffix='roc_auc', sweight=0.0)
+            create_train_plots(gene_dir, 'auroc', suffix='auroc', sweight=0.0)
             create_train_plots(gene_dir, 'loss', suffix='loss', sweight=0.0)
 
         except:

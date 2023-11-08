@@ -24,8 +24,7 @@ import scipy.stats as stats
 from sklearn.model_selection import StratifiedShuffleSplit
 
 from GWANN.dataset_utils import (balance_by_agesex, create_groups, group_ages,
-                                 find_num_wins, PGEN2Pandas, genomic_region_PCA,
-                                 genomic_PCA)
+                                 find_num_wins, PGEN2Pandas)
 from GWANN.utils import vprint
 
 
@@ -307,24 +306,24 @@ def num_wins_per_gene():
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv', 
                       dtype={'chrom':str})
     gdf['num_wins'] = 0
-    for chrom, idxs in gdf.groupby('chrom').groups.items():
-        if int(chrom)%2 != 0:
-            continue
-        cdf = gdf.loc[idxs].head(100)
-        pvar = pd.read_csv(f'/mnt/sdf/GWANN_pgen/UKB_chr{chrom}.pvar', 
+    dfs = []
+    for chrom, idxs in tqdm.tqdm(gdf.groupby('chrom').groups.items(), desc='Chrom'):
+        cdf = gdf.loc[idxs]
+        pvar = pd.read_csv(f'/mnt/sdd/GWANN_pgen/UKB_chr{chrom}.pvar', 
                            sep='\t', dtype={'#CHROM':str})
         pvar.rename(columns={'#CHROM':'CHROM'}, inplace=True)
 
         fargs = list(cdf[['chrom', 'start', 'end']].itertuples(index=False, name=None))
         wins_cnt_func = partial(find_num_wins, pgen_data=pvar.loc[pvar['CHROM'] == chrom], 
-                                win_size=50)
+                                win_size=500)
         with mp.Pool(20) as pool:
             cnts = pool.starmap(wins_cnt_func, fargs, chunksize=1)
             pool.close()
             pool.join()
         cdf['num_wins'] = cnts
-        print(cdf.head())
-        print()
+        dfs.append(cdf)
+    dfs = pd.concat(dfs)
+    dfs.to_csv('/home/upamanyu/GWANN/GWANN/datatables/num_wins_per_gene.csv', index=False)
     
 def dosage_percentage():
     base = '/home/upamanyu/GWANN_data/Data_MatAD/wins'
@@ -425,10 +424,10 @@ if __name__ == '__main__':
     #         phen_cov_path='/mnt/sdg/UKB/Variables_UKB.txt',
     #         grp_size=grp_size, train_oversample=grp_size, test_oversample=grp_size
     #     )
-    # num_wins_per_gene()
+    num_wins_per_gene()
     # for chrom in range(2, 23, 2):
     #     print(f'Running chromosome: {chrom}')
     #     variant_gene_mapping(str(chrom), '/mnt/sdf/annovar_output')
     #     print()
 
-    gene_PCs()
+    # gene_PCs()

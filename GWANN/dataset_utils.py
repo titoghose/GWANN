@@ -1,7 +1,6 @@
 # coding: utf-8
 import multiprocessing as mp
 import os
-import pickle
 import traceback
 from functools import partial
 from typing import Optional, Union
@@ -10,8 +9,7 @@ import csv
 import numpy as np
 import pandas as pd
 import pgenlib as pg
-from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
 
@@ -369,304 +367,6 @@ def create_groups(label:str, param_folder:str, phen_cov_path:str, grp_size:int=1
         test_grps=grp_ids['test'], test_grp_labels=grp_labels['test'])
 
 # Data creation and loading functions
-def linear_change_in_step(old_step:int, evr:float, prev_evr:float, evr_thresh:float, 
-                          max_step:int=5000):
-    """Function to modify the step size based on the change in EVR
-    between the current step and the previous step.
-
-    Parameters
-    ----------
-    old_step : int
-        Previous step size.
-    evr : float
-        Current explained variance ratio.
-    prev_evr : float
-        Previous explained variance ratio.
-    evr_thresh : float
-        Explained variance ratio threshold.
-
-    Returns
-    -------
-    int
-        New step size.
-    """
-    
-    evr_diff = evr - evr_thresh
-    if evr_diff >=0 and evr_diff <= 0.05:
-        return 0
-    
-    prev_evr_diff = evr - prev_evr
-    new_step = int(min(max_step, np.round(np.abs(old_step)*np.abs(evr_diff)/np.abs(prev_evr_diff))))
-    
-    if evr_diff < 0:
-        return -new_step
-    else:
-        return new_step
-
-def genomic_PCA(chrom:str, pg2pd:Union[PGEN2Pandas, str], train_ids:list, 
-                evr_thresh:float=0.95, start_num_snps:int=4000, 
-                step:int=100, num_PCs:int=50) -> pd.DataFrame:
-    """Perform PCA on the genomic region defined by chrom:start-end
-    and return the num_PCs principal components that explains 95% of the
-    variance.
-    
-    Parameters
-    ----------
-    chrom : list
-        List of chromosomes of the genes to include in the dataset.
-        For a single gene pass as a list of a single str.
-    pg2pd : PGEN2Pandas, Union[PGEN2Pandas, str]
-        An object of the type PGEN2Pandas or str which can be passed a
-        chromosome, a start position, and an end position to extract
-        the SNP dosages from a PGEN (PLINK 2.0) file for all samples.
-    train_ids : list
-        List of training sample ids.
-    evr_thresh : float, optional
-        Explained variance ratio threshold, by default 0.95
-        
-    Returns
-    -------
-    pd.DataFrame
-        Pandas dataframe containing the top num_PCs principal components
-        of the genomic region defined by chrom:start-end.
-    """
-    from cuml.decomposition import PCA as cuPCA
-    
-    if isinstance(pg2pd, str):
-        pg2pd = PGEN2Pandas(pg2pd, sample_subset=train_ids)
-    print(pg2pd.pvar.shape[0])
-
-    start_i = 0
-    end_i = start_i + start_num_snps
-    pca_list = []
-    chrom_iterate = True
-    
-    while chrom_iterate:
-        prev_evr = evr_thresh
-        evr = 0
-        iterate = True
-        new_step = step
-
-        dm = pd.DataFrame()
-        while iterate:
-            
-            # Stop if number of SNPs exceeds 20_000
-            if end_i-start_i > 20_000 and evr > evr_thresh+0.05:
-                end_i = start_i + 20_000
-                iterate = False
-
-            # Stop if there are no SNPs left
-            if end_i == pg2pd.pvar.shape[0]:
-                iterate = False
-                chrom_iterate = False
-
-            # Load more snps if needed
-            if (end_i-start_i) > dm.shape[1]:
-                dm = pg2pd.get_k_snps_matrix(chrom=chrom, 
-                                    start_i=start_i,
-                                    end_i=end_i+5000)
-                dm.set_index('iid', inplace=True)
-            
-            data_mat = dm.iloc[:, :(end_i-start_i)]
-            
-            pca = cuPCA(n_components=min(num_PCs, data_mat.shape[1]), 
-                        svd_solver='jacobi', verbose=3)
-            pca.fit(data_mat.astype(np.float32))
-            evr = pca.explained_variance_ratio_.sum()
-            
-            new_step = linear_change_in_step(old_step=new_step,
-                                             evr=evr,
-                                             prev_evr=prev_evr,
-                                             evr_thresh=evr_thresh,
-                                             max_step=data_mat.shape[1]//2)
-            if new_step == 0:
-                iterate = False
-            else:
-                if iterate:
-                    end_i += new_step
-                    end_i = min(end_i, pg2pd.pvar.shape[0])
-                    new_step = min(new_step, pg2pd.pvar.shape[0]-end_i)
-                    print(f'\tEVR = {evr}, changing number of snps by {new_step}')
-            
-            prev_evr = evr
-            
-        print(f'Explained variance ratio for SNPs #{start_i}-#{end_i} ' +
-              f'({end_i-start_i} SNPs) using {num_PCs} PCs is {evr:.4f}\n')
-        
-        pca_list.append(
-            {'chrom':chrom, 'start':pg2pd.pvar.iloc[start_i]['POS'], 
-             'end':pg2pd.pvar.iloc[end_i-1]['POS'], 'evr':evr, 
-             'pca':pca})
-        
-        num_snps = end_i - start_i
-        start_i = end_i
-        end_i = min(start_i + num_snps, pg2pd.pvar.shape[0])
-
-    return pca_list
-
-def genomic_region_PCA(chrom:str, start:int, end:int, 
-                       pg2pd:Union[PGEN2Pandas, str], train_ids:list, 
-                       evr_thresh:float=0.95, 
-                       SNP_thresh:int=10000) -> pd.DataFrame:
-    """Perform PCA on the genomic region defined by chrom:start-end
-    and return the num_PCs principal components that explains 95% of the
-    variance.
-    
-    Parameters
-    ----------
-    chrom : list
-        List of chromosomes of the genes to include in the dataset.
-        For a single gene pass as a list of a single str.
-    start: int
-        Start position of the gene. This should not include the buffer
-        because the final start position will be start-buffer.
-    end: int
-        End position of the gene. This should not include the buffer
-        because the final end position will be end+buffer.
-    pg2pd : PGEN2Pandas, Union[PGEN2Pandas, str]
-        An object of the type PGEN2Pandas or str which can be passed a
-        chromosome, a start position, and an end position to extract
-        the SNP dosages from a PGEN (PLINK 2.0) file for all samples.
-    train_ids : list
-        List of training sample ids.
-    evr_thresh : float, optional
-        Explained variance ratio threshold, by default 0.95
-    SNP_thresh : int, optional
-        Maximum number of SNPs. Genes with SNPs greater
-        than this will be dropped, by default 10000
-        
-    Returns
-    -------
-    pd.DataFrame
-        Pandas dataframe containing the top num_PCs principal components
-        of the genomic region defined by chrom:start-end.
-    """
-    
-    if isinstance(pg2pd, str):
-        pg2pd = PGEN2Pandas(pg2pd)
-
-    data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, 
-                                        end=end, SNP_thresh=SNP_thresh)
-    data_mat.set_index('iid', inplace=True)
-    data_mat = data_mat.loc[train_ids]
-    # print(f'Running {chrom}:{start}-{end} {data_mat.shape[1]}')
-    
-    pca = PCA(n_components=min(50, data_mat.shape[1]))
-    embedding = pca.fit_transform(data_mat)
-
-    evr = 0
-    num_PCs = 0
-    for i in range(len(pca.explained_variance_ratio_)):
-        evr += pca.explained_variance_ratio_[i] 
-        num_PCs += 1
-        if evr >= evr_thresh:
-            break
-
-    print(f'Explained variance ratio using {num_PCs} PCs is {evr:.4f}')
-
-    # return embedding[:, :num_PCs]
-    # return embedding[:, :num_PCs], pca
-    return evr, num_PCs, data_mat.shape[1]
-
-def load_region_PC_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
-              gene:str, chrom:str, start:int, end:int, label:str, sys_params:dict, 
-              covs:list, save_data:bool=False, SNP_thresh:int=25000, only_covs:bool=False, 
-              preprocess:bool=True, lock:Optional[mp.Lock]=None) -> Optional[tuple]:
-    
-    log_creation = lock is not None
-
-    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
-    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
-    test_labels = test_ids_df[label].to_list()
-    test_ids = test_ids_df['iid'].to_list()
-    
-    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
-    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
-    train_labels = train_ids_df[label].to_list()
-    train_ids = train_ids_df['iid'].to_list()
-
-    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/'+
-                f'chr{chrom}_{chrom}_{start}-{end}_{label}.csv')
-
-    if os.path.exists(data_path):
-        print(f'[{gene}] Data exists.')
-        data_mat = pd.read_csv(data_path, index_col=0, comment='#')
-        data_mat.index = data_mat.index.astype(str)
-        data_mat = data_mat.loc[train_ids+test_ids]
-        save_data = False
-    else:
-        data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start, end=end, 
-                                           SNP_thresh=SNP_thresh)
-        if data_mat is None:
-            return None
-        data_mat.set_index('iid', inplace=True)
-        
-        # Transform SNPs into PCs using the pre-saved PCA model
-        pca_model_path = f'{sys_params["PCA_BASE_FOLDER"]}/{chrom}/pca_{chrom}_{start}_{end}.pkl'
-        with open(pca_model_path, 'rb') as f:
-            pca = pickle.load(f)
-        
-        data_mat_PCs = pca.transform(data_mat)
-        print(data_mat_PCs.shape)
-        idx = data_mat.index.values
-        data_mat = pd.DataFrame(data_mat_PCs)
-        data_mat.index = idx
-
-        data_mat = pd.merge(data_mat, phen_cov[covs].loc[data_mat.index], 
-                            left_index=True, right_index=True)
-        data_mat = data_mat.loc[train_ids+test_ids]
-    
-    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
-    data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
-
-    assert not np.any(data_mat.columns.duplicated()), \
-        f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
-    assert not np.any(pd.isna(data_mat)), \
-            f'[{gene}]: Dataframe contains NaN values'
-
-    if only_covs:
-        data_mat = data_mat[covs+[label,]]
-
-    # Save dataframe to disk
-    if save_data:
-        data_mat.to_csv(data_path)
-        print(f'[{gene}] Data written.')
-
-    train_df = data_mat.loc[train_ids]
-    test_df = data_mat.loc[test_ids]
-
-    data_tuple = None
-    if preprocess:
-        data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
-                                    label=label, covs=covs, sys_params=sys_params)    
-        num_PCs = data_tuple[-1]
-    else:
-        data_cols = [c for c in train_df.columns if c!=label]
-        snp_cols = [c for c in data_cols if c not in covs]
-        num_PCs = len(snp_cols)
-
-    if log_creation and save_data:
-        try:
-            lock.acquire()
-            data_stats_f = f'{sys_params["RUNS_BASE_FOLDER"]}/dataset_stats.csv'
-            header = ['Gene', 'chrom', 'start', 'end', 'num_snps', 'label']
-            data_info = [gene, chrom, str(start), str(end), num_PCs, label]
-            if os.path.isfile(data_stats_f):
-                rows = [data_info]
-            else:
-                rows = [header, data_info]
-        
-            with open(data_stats_f, 'a') as f:
-                writer = csv.writer(f)
-                writer.writerows(rows)
-        
-        except Exception as e:
-            raise e
-        finally:
-            lock.release()
-    
-    return data_tuple
-
 def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame], 
               gene:str, chrom:str, start:int, end:int, buffer:int, label:str, 
               sys_params:dict, covs:list, win:Optional[int]=None, 
@@ -685,7 +385,7 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
         the SNP dosages from a PGEN (PLINK 2.0) file for all samples.
     phen_cov : pd.DataFrame, optional
         Dataframe containing covariate and phenotype information
-    gene : list
+    gene : listGWANN/dataset_utils.py
         List of genes to include in the dataset. For a single gene 
         pass as a list of a single str
     chrom : list
@@ -734,15 +434,23 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
     """
     log_creation = lock is not None
 
+    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
+    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
+    train_labels = train_ids_df[label].to_list()
+    train_ids = train_ids_df['iid'].to_list()
+
     test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
     test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
     test_labels = test_ids_df[label].to_list()
     test_ids = test_ids_df['iid'].to_list()
     
-    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
-    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
-    train_labels = train_ids_df[label].to_list()
-    train_ids = train_ids_df['iid'].to_list()
+    val_ids_f = f'{sys_params["PARAMS_PATH"]}/val_ids_{label}.csv'
+    val_ids_df = pd.read_csv(val_ids_f, dtype={'iid':str})
+    val_labels = val_ids_df[label].to_list()
+    val_ids = val_ids_df['iid'].to_list()
+    
+    all_ids = train_ids + test_ids + val_ids
+    all_labels = train_labels + test_labels + val_labels
 
     if win is not None:
         data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/wins/' +
@@ -755,7 +463,7 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
         print(f'[{gene}] Data exists.')
         data_mat = pd.read_csv(data_path, index_col=0, comment='#')
         data_mat.index = data_mat.index.astype(str)
-        data_mat = data_mat.loc[train_ids+test_ids]
+        data_mat = data_mat.loc[all_ids]
         save_data = False
     else:
         data_mat = pg2pd.get_dosage_matrix(chrom=chrom, start=start-buffer, 
@@ -767,9 +475,9 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
         data_mat.set_index('iid', inplace=True)
         data_mat = pd.merge(data_mat, phen_cov[covs].loc[data_mat.index], 
                             left_index=True, right_index=True)
-        data_mat = data_mat.loc[train_ids+test_ids]
+        data_mat = data_mat.loc[all_ids]
     
-    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
+    data_mat.loc[all_ids, label] = all_labels
     data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
 
     assert not np.any(data_mat.columns.duplicated()), \
@@ -787,10 +495,11 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
 
     train_df = data_mat.loc[train_ids]
     test_df = data_mat.loc[test_ids]
+    val_df = data_mat.loc[val_ids]
 
     data_tuple = None
     if preprocess:
-        data_tuple = preprocess_data(train_df=train_df, test_df=test_df, 
+        data_tuple = preprocess_data(train_df=train_df, test_df=test_df, val_df=val_df,
                                     label=label, covs=covs, sys_params=sys_params)    
         num_snps = data_tuple[-1]
     else:
@@ -820,90 +529,8 @@ def load_data(pg2pd:Union[PGEN2Pandas, str], phen_cov:Optional[pd.DataFrame],
     
     return data_tuple
 
-def _load_win_data(gene:str, win:int, chrom:str, buffer:int, label:str, 
-                  sys_params:dict, covs:list, 
-                  only_covs:bool=False) -> Optional[tuple]:
-    """Load data from disk. This function is a quick data loading if the
-    data for each gene has already been split into windows.
-
-    Parameters
-    ----------
-    gene : list
-        List of genes to include in the dataset. For a single gene 
-        pass as a list of a single str
-    chrom : list
-        List of chromosomes of the genes to include in the dataset. 
-        For a single gene pass as a list of a single str.
-    buffer: int
-        Base-pair buffer to consider on each side of the gene.
-    label : str
-        Prediction label/phenotype for the dataset.
-    sys_params : dict
-        Dictionary containing system specific parameters - necessary
-        foder paths.
-    covs : list
-       List of covariates
-    only_covs : bool, optional
-        Return a dataframe of only covariates, without any SNPs.
-    
-    Returns
-    -------
-    tuple
-        Data tuple containing the following in the respective
-        indices:
-        0 - Balanced training data (ndarray)
-        1 - Balanced training labels (ndarray)
-        2 - Balanced testing data (ndarray)
-        3-  Balanced testing label (ndarray)
-        4 - Array containing class weights based on training labels
-        (ndarray)
-        5 - Names of each column in the data arrays (list)
-        6 - Number of SNPs in the data arrays (int)
-    """
-    test_ids_f = f'{sys_params["PARAMS_PATH"]}/test_ids_{label}.csv'
-    test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
-    test_labels = test_ids_df[label].to_list()
-    test_ids = test_ids_df['iid'].to_list()
-    
-    train_ids_f = f'{sys_params["PARAMS_PATH"]}/train_ids_{label}.csv'
-    train_ids_df = pd.read_csv(train_ids_f, dtype={'iid':str})
-    train_labels = train_ids_df[label].to_list()
-    train_ids = train_ids_df['iid'].to_list()
-
-    data_path = (f'{sys_params["DATA_BASE_FOLDER"]}/wins/' +
-                f'chr{chrom}_{gene}_{win}_{buffer}bp_{label}.csv')
-
-    data_mat = pd.read_csv(data_path, index_col=0, comment='#')
-    data_mat.index = data_mat.index.astype(str)
-    data_mat.loc[train_ids+test_ids, label] = train_labels+test_labels
-    data_mat = data_mat.loc[:,~data_mat.columns.duplicated()]
-
-    assert not np.any(data_mat.columns.duplicated()), \
-        f'Data has duplicated columns: {data_mat.columns[data_mat.columns.duplicated()]}'
-
-    train_df = data_mat.loc[train_ids]
-    test_df = data_mat.loc[test_ids]
-    
-    if set(covs).difference(set(data_mat.columns)):
-        print(f'[{gene}]: Covariates in data do not match cov yaml file')
-        return
-
-    if only_covs:
-        train_df = train_df[covs+[label,]]
-        test_df = test_df[covs+[label,]]
-    
-    assert not np.any(pd.isna(train_df)), \
-            f'[{gene}]: Train dataframe contains NaN values'
-    assert not np.any(pd.isna(test_df)), \
-            f'[{gene}]: Test dataframe contains NaN values'
-
-    data_tuple = preprocess_data(train_df=train_df, test_df=test_df, label=label,
-                                 covs=covs, sys_params=sys_params)
-
-    return data_tuple
-
-def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str, 
-                    covs:list, sys_params:dict) -> tuple:
+def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, val_df:pd.DataFrame, 
+                    label:str, covs:list, sys_params:dict) -> tuple:
     """Given a training and testing pandas dataframe, this function
     scales features between 0 and 1, and converts samples into 'grouped
     samples' for group training. 
@@ -939,26 +566,26 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     data_cols = [c for c in train_df.columns if c!=label]
     snp_cols = [c for c in data_cols if c not in covs]
     num_snps = len(snp_cols)
-    
+    y = train_df[label].copy().values
+    y_test = test_df[label].copy().values
+    y_val = val_df[label].copy().values
+
     # Scale each feature between 0 and 1
-    mm_scaler = MinMaxScaler(feature_range=(0, 1))
-    mm_scaler.fit(train_df)
-    scaled_train_df = mm_scaler.transform(train_df)
-    train_df.iloc[:, num_snps:-1] = scaled_train_df[:, num_snps:-1]
+    scaler = StandardScaler()
+    scaler.fit(train_df)
     
-    scaled_test_df = mm_scaler.transform(test_df)
-    test_df.iloc[:, num_snps:-1] = scaled_test_df[:, num_snps:-1]
+    train_df.iloc[:, :] = scaler.transform(train_df)
+    test_df.iloc[:, :] = scaler.transform(test_df)
+    val_df.iloc[:, :] = scaler.transform(val_df)
     
     X = train_df[data_cols].to_numpy()
-    y = train_df[label].values
-    
     X_test = test_df[data_cols].to_numpy()
-    y_test = test_df[label].values
+    X_val = val_df[data_cols].to_numpy()
     
     class_weights = compute_class_weight(class_weight='balanced', 
                                         classes=[0, 1], y=y)
 
-    return X, y, X_test, y_test, class_weights, data_cols, num_snps
+    return X, y, X_test, y_test, X_val, y_val, class_weights, data_cols, num_snps
 
 def balance_by_agesex(data:pd.DataFrame, label_col:str, 
                       control_prop:float=1.0) -> pd.DataFrame:

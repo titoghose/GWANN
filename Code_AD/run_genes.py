@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 
 import numpy as np
 import pandas as pd
+import torch
 import yaml
 import torch.nn as nn
 
@@ -16,7 +17,7 @@ sys.path.append('/home/upamanyu/GWANN')
 import argparse
 
 from GWANN.dataset_utils import create_data_for_run, split
-from GWANN.models import AttentionMask1, GWANNet5
+from GWANN.models import MLP, BranchedMLP
 from GWANN.train_model import Experiment
 
 
@@ -76,7 +77,7 @@ def create_gene_wins(sys_params:dict, covs:list, label:str,
         pool.join()
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, glist:Union[list, dict], grp_size:int=10, 
+                   gpu_list:list, glist:Union[list, dict], 
                    shap_plots:bool=False) -> None:
     """Invoke model training pipeline.
 
@@ -95,37 +96,50 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
 
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
-    
+    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
+        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
     # Setting the model for the Experiment
-    model = GWANNet5
+    # model = MLP
+    # model_params = {
+    #     'd_in':-1,
+    #     'd_out':1,
+    #     'd_layers':[256, 256, 256],
+    #     'dropout':0.1,
+    #     'activation':'ReLU'
+    # }
+    
+    model_name = 'MLP_[32,32,32]_Dr_0.1_LR:0.005_Optim:Adam'
+    cov_branch_path = (f'{sys_params["LOGS_BASE_FOLDER"]}/' +
+                    f'{label}_Cov{exp_name}_{model_name}/'+
+                    f'BCR/0_BCR.pt')
+    cov_branch = torch.load(cov_branch_path, map_location='cpu')
+    cov_branch.head = None
+
+    model = BranchedMLP
+    d_layers = [32, 32, 32]
     model_params = {
-        'grp_size':grp_size,
-        'snps':0,
-        'cov_model':None,
-        'enc':8,
-        'h':[32, 16],
-        'd':[0.5, 0.5],
-        'out':8,
-        'activation':nn.ReLU,
-        'att_model':AttentionMask1
+        'd_snps':-1,
+        'd_layers':d_layers,
+        'd_out':1,
+        'cov_branch':cov_branch,
+        'dropout':0.1,
+        'activation':'ReLU'
     }
+
     hp_dict = {
-        'optimiser': 'adam',
+        'optimiser': 'Adam',
         'lr': 5e-3,
-        'batch': 256,
+        'train_batch_size': 512,
+        'infer_batch_size': 4096,
         'epochs': 250,
-        'early_stopping':20
+        'early_stopping':20,
+        'freeze_covs':True
     }
 
     prefix = label + '_Chr' + exp_name
-
-    cov_model_id = f'{prefix.replace("Chr", "Cov")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
-    cov_model_path = '{}/{}'.format(sys_params["LOGS_BASE_FOLDER"], cov_model_id)
-
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
-                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
-                     cov_model_path=cov_model_path, grp_size=grp_size)
+                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False)
     
     if not shap_plots:
         gdf = pd.read_csv('../GWANN/datatables/gene_annot.csv', dtype={'chrom':str})
@@ -197,7 +211,7 @@ def get_chrom_glist(chrom:str) -> list:
     gdf = gdf.loc[gdf['chrom'] == chrom]
     gdf = gdf.loc[gdf['num_wins_2500bp'] > 0]
     return gdf.index.to_list()
-    
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -209,16 +223,12 @@ if __name__ == '__main__':
     chrom = args.chrom
     
     # Run model training pipeline
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/architecture_testing'
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
-    grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
-    random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
-    glist = get_chrom_glist(chrom)
-    glist = ['TCERG1L', 'TECTB', 'TDRD1', 'TET1', 'TFAM', 'TEX36', 'TIAL1', 'TLL2', 'THNSL1']
-    model_pipeline(exp_name=exp_name, label=label, 
-                   param_folder=param_folder, 
-                   gpu_list=gpu_list, glist=glist, 
-                   grp_size=grp_size, shap_plots=False)
+    exp_name = f'ArchTest_{torch_seed}_FrozenCov'
+    # glist = get_chrom_glist(chrom)
+    glist = ['APOE', 'BIN1', 'PICALM', 'LRRC7', 'ADAM10', 'APH1B', 'MACROD2', 'WWOX']
+    model_pipeline(exp_name=exp_name, label=label, param_folder=param_folder, 
+                   gpu_list=gpu_list, glist=glist, shap_plots=False)
     

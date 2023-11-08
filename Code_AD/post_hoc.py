@@ -60,23 +60,34 @@ class EstimatePValue:
     def estimate(self, acc:float) -> float:
         return skewnorm.sf(acc, *self.moments)
 
-def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bool):
-    if not os.path.exists(f'./results_{exp_name}'):
-        os.mkdir(f'./results_{exp_name}')
+def calculate_p_values(label:str, exp_name:str, model_name:str, metric:str, 
+                       greater_is_better:bool):
+    
+    results_folder = f'results_{exp_name}_{model_name.split("_")[0]}'
+
+    if not os.path.exists(f'./results/{results_folder}'):
+        os.makedirs(f'./results/{results_folder}')
     
     null_df = pd.read_csv(
         f'./NN_Logs/' + 
-        f'{label}_ChrDummy{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
+        f'{label}_ChrDummy{exp_name}_{model_name}/'+
         f'{label}_ChrDummy{exp_name}_2500bp_summary.csv')
     if greater_is_better:
         ep = EstimatePValue(null_accs=null_df[metric].values)
     else:
         ep = EstimatePValue(null_accs=-1*null_df[metric].values)
-    ep.plot_null_dist(f'./results_{exp_name}/{label}_{metric}_null_dist.png')
+    ep.plot_null_dist(f'./results/{results_folder}/{label}_{metric}_null_dist.png')
 
-    summ_df = pd.read_csv(
-        f'./NN_Logs/'+
-        f'{label}_Chr{exp_name}_2500bp_summary.csv')
+    try:
+        summ_df = pd.read_csv(
+            f'./NN_Logs/'+
+            f'{label}_Chr{exp_name}_2500bp_summary.csv')
+    except FileNotFoundError:
+        summ_df = pd.read_csv(
+            f'./NN_Logs/'+
+            f'{label}_Chr{exp_name}_{model_name}/'+
+            f'{label}_Chr{exp_name}_2500bp_summary.csv')
+
     if greater_is_better:
         summ_df['P'] = summ_df[metric].apply(lambda x: ep.estimate(x)).values
     else:
@@ -86,9 +97,9 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df[f'P_bonf'] = corr_p
     summ_df[f'alpha_bonf'] = alpha_bonf
     summ_df[f'P_fdr_bh'] = multipletests(summ_df['P'].values, method='fdr_bh')[1]
-    summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv', index=False)
+    summ_df.to_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_summary.csv', index=False)
     hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_hits.csv', index=False)
+    hits_df.to_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_hits.csv', index=False)
 
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
     gdf.set_index('symbol', inplace=True)
@@ -98,9 +109,9 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df.drop_duplicates(['Gene'], inplace=True)
     summ_df['entrez_id'] = gdf.loc[summ_df['Gene'].values]['id'].values
     summ_df['ens_g'] = gdf.loc[summ_df['Gene'].values]['ens_g'].values
-    summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
+    summ_df.to_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
     hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
+    hits_df.to_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
     
 def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
     comb_summ_df = []
@@ -122,13 +133,13 @@ def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
         print(f'Summary file exists at: {comb_summ_path}')
 
 def mine_agora(exp_name:str):
-    agora_res_path = f'./results_{exp_name}/enrichments/AGORA.csv'
+    agora_res_path = f'./results/{results_folder}/enrichments/AGORA.csv'
 
     if not os.path.exists(agora_res_path):
 
         mg = MyGeneInfo()
 
-        df = pd.read_csv(f'./results_{exp_name}/hits.txt')
+        df = pd.read_csv(f'./results/{results_folder}/hits.txt')
         glist = df['Gene'].to_list()
 
         agora_df = pd.DataFrame(columns=['hgnc_symbol', 'ENSG', 'isIGAP', 'haseqtl', 'nominations', 
@@ -184,12 +195,12 @@ def mine_agora(exp_name:str):
     sns.heatmap(data=agora_df, cmap='Reds', cbar=False, xticklabels=True, 
                 linewidths=0.2, linecolor='gray', ax=ax)
     fig.tight_layout()
-    fig.savefig(f'./results_{exp_name}/enrichments/AGORA_heatmap.svg')
-    fig.savefig(f'./results_{exp_name}/enrichments/AGORA_heatmap.png', dpi=100)
+    fig.savefig(f'./results/{results_folder}/enrichments/AGORA_heatmap.svg')
+    fig.savefig(f'./results/{results_folder}/enrichments/AGORA_heatmap.png', dpi=100)
     plt.close()
 
 def manhattan(label:str, exp_name:str, metric:str, p_cut_off:float=1e-30):
-    summ_df = pd.read_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_summary.csv')
+    summ_df = pd.read_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_gene_summary.csv')
     summ_df.loc[summ_df['P'] < p_cut_off, 'P'] = p_cut_off
     hits = summ_df.loc[summ_df['P_bonf'] < 0.05]['Gene'].to_list()
     cor_p = summ_df['alpha_bonf'].to_list()[0]
@@ -252,14 +263,14 @@ def manhattan(label:str, exp_name:str, metric:str, p_cut_off:float=1e-30):
     plt.ylabel('-log10 (P)', fontsize=14)
     plt.title('{} - manhattan'.format(exp_name))
     
-    fname = f'./results_{exp_name}/enrichments/manhattan'
+    fname = f'./results/{results_folder}/enrichments/manhattan'
     plt.tight_layout()
     plt.savefig(f'{fname}.svg', bbox_inches='tight')
     plt.savefig(f'{fname}.png', dpi=100)
     plt.close()
 
 def ld_link_matrix(snp_list:list, out_file:str):
-    cmd = 'bash ./results_Sens8_00_GS10_v4/LD/ld_link_matrix.sh '
+    cmd = 'bash ./results/results_Sens8_00_GS10_v4/LD/ld_link_matrix.sh '
     cmd += f'{out_file} '
     snps = r"\\n".join(snp_list)
     cmd += f'{snps}'
@@ -279,9 +290,9 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
     samples_df = samples_df[['iid']]
     samples_df['#FID'] = samples_df['iid'].values
     samples_df.rename(columns={'iid':'IID'}, inplace=True)
-    samples_df[['#FID', 'IID']].to_csv(f'./results_{exp_name}/LD/keep.csv', index=False, sep='\t')
+    samples_df[['#FID', 'IID']].to_csv(f'./results/{results_folder}/LD/keep.csv', index=False, sep='\t')
     
-    summ_df = pd.read_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv')
+    summ_df = pd.read_csv(f'./results/{results_folder}/{label}_{metric}_{exp_name}_summary.csv')
     summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
     summ_df['Chrom'] = summ_df['Chrom'].astype(int).values
     summ_df['Win'] = summ_df['Gene'].apply(lambda x:int(x.split('_')[1])).values
@@ -314,7 +325,7 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
     snp_df = pd.concat(snps)
     snp_df['GENE'] = genes
     snp_df.rename(columns={'CHROM':'#CHROM'}, inplace=True)
-    snp_df.to_csv(f'./results_{exp_name}/LD/hit_snps.csv', index=False, sep='\t')
+    snp_df.to_csv(f'./results/{results_folder}/LD/hit_snps.csv', index=False, sep='\t')
 
     # Perform LD calculations between hit snps
     gene_pair_ld = []
@@ -323,7 +334,7 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
         chrom_df.drop_duplicates(['ID'], inplace=True)
         
         snp_list = chrom_df['ID'].to_list()
-        out_file = f'./results_{exp_name}/LD/chrom{chrom}_LDMatrix.csv'
+        out_file = f'./results/{results_folder}/LD/chrom{chrom}_LDMatrix.csv'
         ld_link_matrix(snp_list=snp_list, out_file=out_file)
 
         chrom_df.set_index('ID', inplace=True)
@@ -345,18 +356,19 @@ def hit_gene_win_snps(label:str, exp_name:str, metric:str,
         os.remove(out_file)
 
     gene_pair_ld = pd.concat(gene_pair_ld)
-    gene_pair_ld.to_csv(f'./results_{exp_name}/LD/gene_pair_LD.csv', index=False)
+    gene_pair_ld.to_csv(f'./results/{results_folder}/LD/gene_pair_LD.csv', index=False)
 
 if __name__ == '__main__':
-    for rseed in [0]:
+    for rseed in [0, 73, 347, 816]:
         label = 'FH_AD'
-        exp_name = f'Sens8_{rseed}{rseed}_GS10_v4'
+        exp_name = f'ArchTest_{rseed}_Win500'
+        model_name = 'MLP_[256,256,256]_Dr_0.1_LR:0.005_Optim:Adam'
         print(exp_name)
 
-        combine_chrom_summ_stats(list(range(1, 23, 1)), 
-                                label=label, exp_name=exp_name)
-        calculate_p_values(label=label, exp_name=exp_name, 
-                       metric='Acc', greater_is_better=True)
+        # combine_chrom_summ_stats(list(range(1, 23, 1)), 
+        #                         label=label, exp_name=exp_name)
+        calculate_p_values(label=label, exp_name=exp_name, model_name=model_name,
+                       metric='Loss', greater_is_better=False)
         # calculate_p_values(label=label, exp_name=exp_name, 
         #                    metric='Loss', greater_is_better=False)
     # calculate_p_values(label=label, exp_name=exp_name, 

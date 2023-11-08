@@ -7,6 +7,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import torch
 import tqdm
 import yaml
 import torch.nn as nn
@@ -16,7 +17,7 @@ sys.path.append('/home/upamanyu/GWANN')
 import argparse
 
 from GWANN.dataset_utils import PGEN2Pandas, load_data
-from GWANN.models import AttentionMask1, GWANNet5
+from GWANN.models import MLP, BranchedMLP
 from GWANN.train_model import Experiment
 from GWANN.dummy_data import dummy_plink
 
@@ -43,7 +44,8 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
         covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
     
-    ids = pd.read_csv('params/all_valid_iids.csv', dtype={'iid':str})['iid'].to_list()
+    ids = pd.read_csv(f'{sys_params["PARAMS_PATH"]}/all_ids_{label}.csv', 
+                      dtype={'iid':str})['iid'].to_list()
     print(len(ids))
 
     split_data_base = sys_params['DATA_BASE_FOLDER'].split('/')
@@ -59,7 +61,9 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     
     # cnt = 0
     # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    # for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
+    # num_snps = np.arange(0, 501, 25)
+    # num_snps[0] = 10
+    # for num_snps in tqdm.tqdm(num_snps, desc='Num_dummy_snps'):
     #     for dos_freq in dosage_freqs:
     #         file_prefix = dummy_plink(samples=ids, 
     #                 num_snps=num_snps, dosage_freq=dos_freq, 
@@ -71,7 +75,7 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     #         load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
     #                 chrom='1', start=0, end=100, buffer=2500, label=label, 
     #                 sys_params=sys_params, covs=covs, 
-    #                 preprocess=False, lock=lock)
+    #                 preprocess=False, lock=lock, save_data=True)
     #         cnt += 1
 
     shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
@@ -96,12 +100,12 @@ def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
     
     np.random.seed(93)
     random_seeds = np.random.randint(0, 10000, size=(5000,))
-    random_seeds = random_seeds[1000:]
+    # random_seeds = random_seeds[1000:]
     i = 0
     par_func = partial(shuffle_snps, data_folder=data_folder, covs=covs, 
                        wins_folder=wins_folder)
     fargs = []
-    num_shuffles = 200
+    num_shuffles = 12
     for f in flist:
         fargs.append((f, random_seeds[i*num_shuffles:(i+1)*num_shuffles]))
         i += 1
@@ -126,7 +130,7 @@ def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list,
         i += 1
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 
-                   gpu_list:list, grp_size:int=10) -> None:
+                   gpu_list:list) -> None:
     """Invoke model training pipeline.
 
     Parameters
@@ -144,7 +148,9 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
 
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
-    
+    with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
+        covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
+
     gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
     gene_win_paths = [g for g in gene_win_paths if 'Dummy' in g]
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
@@ -154,36 +160,48 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
-
+    
     # Setting the model for the Experiment
-    model = GWANNet5
+    # model = MLP
+    # model_params = {
+    #     'd_in':-1,
+    #     'd_out':1,
+    #     'd_layers':[256, 256, 256],
+    #     'dropout':0.1,
+    #     'activation':'ReLU'
+    # }
+    model_name = 'MLP_[32,32,32]_Dr_0.1_LR:0.005_Optim:Adam'
+    cov_branch_path = (f'{sys_params["LOGS_BASE_FOLDER"]}/' +
+                    f'{label}_Cov{exp_name.replace("Dummy", "")}_{model_name}/'+
+                    f'BCR/0_BCR.pt')
+    cov_branch = torch.load(cov_branch_path, map_location='cpu')
+    cov_branch.head = None
+
+    model = BranchedMLP
+    d_layers = [32, 32, 32]
     model_params = {
-        'grp_size':grp_size,
-        'snps':0,
-        'cov_model':None,
-        'enc':8,
-        'h':[32, 16],
-        'd':[0.5, 0.5],
-        'out':8,
-        'activation':nn.ReLU,
-        'att_model':AttentionMask1
+        'd_snps':-1,
+        'd_layers':d_layers,
+        'd_out':1,
+        'cov_branch':cov_branch,
+        'dropout':0.1,
+        'activation':'ReLU'
     }
+
     hp_dict = {
-        'optimiser': 'adam',
+        'optimiser': 'Adam',
         'lr': 5e-3,
-        'batch': 256,
+        'train_batch_size': 512,
+        'infer_batch_size': 4096,
         'epochs': 250,
-        'early_stopping':20
+        'early_stopping':20,
+        'freeze_covs':True
     }
+    
     prefix = label + '_Chr' + exp_name
-
-    cov_model_id = f'{prefix.replace("Chr", "Cov").replace("Dummy", "")}_GroupAttention_[32,16,8]_Dr_0.5_LR:0.0001_BS:256_Optim:adam/BCR/0_BCR.pt'
-    cov_model_path = '{}/{}'.format(sys_params["LOGS_BASE_FOLDER"], cov_model_id)
-
     exp = Experiment(prefix=prefix, label=label, params_base=param_folder, 
                      buffer=2500, model=model, model_dict=model_params, 
-                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False,
-                     cov_model_path=cov_model_path, grp_size=grp_size)
+                     hp_dict=hp_dict, gpu_list=gpu_list, only_covs=False)
     
     # Remove genes that have already completed
     if os.path.exists(exp.summary_f):
@@ -215,7 +233,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     label = args.label
     
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/architecture_testing'
     
     # Dummy data creation
     # create_dummy_pgen(param_folder=param_folder,
@@ -225,10 +243,7 @@ if __name__ == '__main__':
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
-    random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
-    exp_name = f'Dummy{exp_name}'
+    exp_name = f'ArchTest_{torch_seed}_FrozenCov'
     model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 
-                param_folder=param_folder, gpu_list=gpu_list, 
-                grp_size=grp_size)
+                param_folder=param_folder, gpu_list=gpu_list)
     

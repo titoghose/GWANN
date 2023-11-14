@@ -940,20 +940,18 @@ def preprocess_data(train_df:pd.DataFrame, test_df:pd.DataFrame, label:str,
     snp_cols = [c for c in data_cols if c not in covs]
     num_snps = len(snp_cols)
     
+    y = train_df[label].copy().values
+    y_test = test_df[label].copy().values
+    
     # Scale each feature between 0 and 1
     mm_scaler = MinMaxScaler(feature_range=(0, 1))
     mm_scaler.fit(train_df)
-    scaled_train_df = mm_scaler.transform(train_df)
-    train_df.iloc[:, num_snps:-1] = scaled_train_df[:, num_snps:-1]
     
-    scaled_test_df = mm_scaler.transform(test_df)
-    test_df.iloc[:, num_snps:-1] = scaled_test_df[:, num_snps:-1]
+    train_df.iloc[:, :] = mm_scaler.transform(train_df)
+    test_df.iloc[:, :] = mm_scaler.transform(test_df)
     
     X = train_df[data_cols].to_numpy()
-    y = train_df[label].values
-    
     X_test = test_df[data_cols].to_numpy()
-    y_test = test_df[label].values
     
     class_weights = compute_class_weight(class_weight='balanced', 
                                         classes=[0, 1], y=y)

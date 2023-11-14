@@ -201,14 +201,13 @@ if __name__ == '__main__':
     parser.add_argument('--label', type=str, required=True)
     args = parser.parse_args()
     label = args.label
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
 
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens7'
-    gpu_list = [5, 6]
-    grp_size = 10
+    gpu_list = [0, 1]
+    grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens7_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
     model_pipeline(label=label, param_folder=param_folder,
                     gpu_list=gpu_list, exp_name=exp_name, 
                     grp_size=grp_size)

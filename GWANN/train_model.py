@@ -381,6 +381,7 @@ class Experiment:
             # Make training plots
             create_train_plots(gene_dir, 'acc', suffix='acc', sweight=0.0)
             create_train_plots(gene_dir, 'roc_auc', suffix='roc_auc', sweight=0.0)
+            create_train_plots(gene_dir, 'snp_grads', suffix='snp_grads', sweight=0.0)
             create_train_plots(gene_dir, 'loss', suffix='loss', sweight=0.0)
 
         except:

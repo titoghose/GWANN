@@ -48,7 +48,7 @@ from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # Load paramaters
-class EarlyStopping:
+class EarlyStopping: 
     def __init__(self, patience=10, verbose=False, delta=0, save_path='checkpoint.pt', 
                  inc=True):
         self.patience = patience
@@ -219,7 +219,8 @@ def create_train_plots(gene_dir, m_plot, sweight=0, save_as='svg', suffix=''):
     
     fig_name = '{}/train_plot_{}.{}'.format(gene_dir, suffix, save_as)
     
-    colors = {'roc_auc':'blue', 'acc':'orange', 'loss':'black'}
+    colors = {'roc_auc':'blue', 'acc':'orange', 'loss':'black', 
+              'snp_grads':'green'}
     tm = np.load('{}/training_metrics.npz'.format(gene_dir))
     
     metric_df = []
@@ -318,6 +319,71 @@ def weight_init_linear(m):
     elif isinstance(m, nn.BatchNorm1d):
         nn.init.ones_(m.weight.data)
         nn.init.zeros_(m.bias.data)
+
+def set_grad(model:nn.Module, requires_grad:bool) -> None:
+    """Function to set the requires_grad attribute of all parameters of 
+    a model.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Model for which the requires_grad attribute needs to be set.
+    requires_grad : bool
+        Value to set the requires_grad attribute to.
+    """
+    for param in model.parameters():
+        param.requires_grad = requires_grad
+
+# Metrics
+@torch.enable_grad()
+def gradient_metric(model:nn.Module, loss_fn: nn.Module, X:torch.tensor, 
+                    y:torch.tensor, epsilon:float=1e-8) -> torch.tensor:
+    """Function to calculate the gradient of the model output with 
+    respect to the input, and then return the ratio of the sum of SNP
+    gradients to the sum of covariate gradients.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Neural network model.
+    loss_fn : nn.Module
+        Loss function.
+    X : torch.tensor
+        Input data.
+    y : torch.tensor
+        Labels.
+    epsilon : float, optional
+        Value to add to the denominator to avoid division by 0
+        (default=1e-8).
+        
+    Returns
+    -------
+    torch.tensor
+        Sum of SNP gradients divided by the sum of covariate gradients.
+    """
+    
+    if not hasattr(model, 'num_snps'):
+        return torch.zeros_like(y).squeeze()
+
+    model.eval()
+    X.requires_grad = True
+    model.zero_grad()
+    raw_out = model.forward(X)[:, 0]
+    loss = loss_fn(raw_out, y)
+    loss.backward()
+    
+    snp_grads = torch.sum(
+        torch.nanmean(
+            torch.abs(X.grad.detach().clone()[:, :, :model.num_snps]), 
+            dim=1),
+        dim=1)
+    # cov_grads = torch.sum(
+    #     torch.nanmean(
+    #         torch.abs(X.grad.detach().clone()[:, :, model.num_snps:]), 
+    #         dim=1),
+    #     dim=1)
+
+    return snp_grads #(snp_grads+epsilon)/(cov_grads+epsilon)
 
 # General Training functions
 def running_avg(old_avg:float, new_val:float, n:int) -> float:
@@ -511,7 +577,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
     avg_acc = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
     avg_roc_auc = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
     avg_loss = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
-    
+    avg_snp_grads = {k:torch.zeros(epochs) for k in ['train', 'val', 'test']}
     early_stopping = EarlyStopping(patience=early_stopping_thresh, 
                                    save_path=f'{log}/{model_name}.pt', 
                                    inc=False)
@@ -546,6 +612,7 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
             avg_loss[split][epoch] = metric_dict['loss']
             avg_roc_auc[split][epoch] = metric_dict['roc_auc']
             avg_acc[split][epoch] = metrics_from_conf_mat(agg_conf_mat[split][epoch])['acc']
+            avg_snp_grads[split][epoch] = metric_dict['snp_grads']
         
         early_stopping(avg_loss['val'][epoch], model, epoch)
         # early_stopping(avg_acc[epoch][1], model, epoch)
@@ -560,12 +627,14 @@ def train_val_loop(model:nn.Module, X:torch.tensor, y:torch.tensor,
         avg_loss[split] = avg_loss[split][:min(epoch+1, epochs)].detach().cpu().numpy()
         avg_acc[split] = avg_acc[split][:min(epoch+1, epochs)].detach().cpu().numpy()
         avg_roc_auc[split] = avg_roc_auc[split][:min(epoch+1, epochs)].detach().cpu().numpy()
+        avg_snp_grads[split] = avg_snp_grads[split][:min(epoch+1, epochs)].detach().cpu().numpy()
 
     return {'best_ep':early_stopping.best_epoch, 
             'conf_mat':agg_conf_mat, 
             'acc':avg_acc, 
             'loss':avg_loss, 
-            'roc_auc':avg_roc_auc}
+            'roc_auc':avg_roc_auc,
+            'snp_grads':avg_snp_grads}
 
 def training_stuff(model:nn.Module, damping:float, class_weights:np.ndarray, 
                    lr:float, opt:str) -> tuple:
@@ -681,10 +750,11 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
         weight_init_linear(named_module[1])
 
     # Freeze covariate model weights
-    if 'cov_model' in model_args:
-        for param in model.named_parameters():
-            if 'cov_model' in param[0]:
-                param[1].requires_grad = False
+    # if 'cov_model' in model_args:
+    #     for param in model.named_parameters():
+    #         if 'cov_model' in param[0]:
+    #             print('Freezing cov weights')
+    #             param[1].requires_grad = False
 
     loss_fn, optimiser, scheduler = training_stuff(model=model, damping=damp, 
                                         class_weights=class_weights, lr=lr, 
@@ -715,6 +785,7 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
     return train_val_loop(model=model, X=X, y=y, Xt=X_test, yt=y_test, 
                         training_dict=training_dict, log=log)
 
+@torch.no_grad()
 def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module, 
           loss_fn:nn.Module, device:Union[str, int], perms:Optional[list]=None, 
           num_snps:int=0, class_weights:list=[1,1], batch_size:int=2048) -> dict:
@@ -763,51 +834,59 @@ def infer(X_tensor:torch.tensor, y_tensor:torch.tensor, model:nn.Module,
     model.eval()
     model = model.to(device)
     loss_fn = loss_fn.to(device)
-    with torch.no_grad():
-        dataset = GWASDataset(X_tensor, y_tensor)
-        sampler = BalancedBatchGroupSampler(dataset=dataset, 
-                                            batch_size=batch_size, 
-                                            grp_size=model.grp_size,
-                                            random_seed=int(os.environ['GROUP_SEED']))
-        
-        dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
-        
-        # Iterate over the dataset 10 times. In each epoch, the grouping
-        # of samples will be different, so we will get an average
-        # accuracy over multiple groupings.
-        y_pred = torch.tensor([], device=device).float()
-        pred_prob = torch.tensor([], device=device).float()
-        y_true = torch.tensor([], device=device).float()
-        loss = 0.0
-        bnum = 0
-        for _ in range(1 if len(dataloader) > 1 else 20):
-            for sample in dataloader:
-                X_batch = sample[0].to(device)
-                y_batch = sample[1][:, 0].float().to(device)
-                
-                raw_out = model.forward(X_batch)[:, 0]
-                
-                y_pred = torch.cat(
-                    (y_pred, pred_from_raw(raw_out.detach().clone())))
-                
-                pred_prob = torch.cat(
-                    (pred_prob, torch.sigmoid(raw_out.detach().clone())))
-                
-                y_true = torch.cat((y_true, y_batch.detach().clone()))
-                batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
-                loss = running_avg(loss, batch_loss, bnum+1)
-                
-                bnum += 1
+    dataset = GWASDataset(X_tensor, y_tensor)
+    sampler = BalancedBatchGroupSampler(dataset=dataset, 
+                                        batch_size=batch_size, 
+                                        grp_size=model.grp_size,
+                                        random_seed=int(os.environ['GROUP_SEED']))
+    
+    dataloader = DataLoader(dataset=dataset, batch_sampler=sampler)
+    
+    # Iterate over the dataset 10 times. In each epoch, the grouping
+    # of samples will be different, so we will get an average
+    # accuracy over multiple groupings.
+    y_pred = torch.tensor([], device=device).float()
+    pred_prob = torch.tensor([], device=device).float()
+    y_true = torch.tensor([], device=device).float()
+    snp_grads = torch.tensor([], device=device).float()
+    loss = 0.0
+    bnum = 0
 
-        class_weights = compute_class_weight(class_weight='balanced', 
-                                        classes=[0, 1], 
-                                        y=y_tensor.cpu().numpy())
-        class_weights = torch.tensor(class_weights, device=device).float()
-        conf_mat = gen_conf_mat(y_true.detach().clone(), y_pred, 
-                                class_weights=class_weights)
-        roc_auc = metrics_from_raw(y_true=y_true, pred_prob=pred_prob)['roc_auc']
+    for _ in range(1 if len(dataloader) > 1 else 20):
+        for sample in dataloader:
+            X_batch = sample[0].to(device)
+            y_batch = sample[1][:, 0].float().to(device)
+            
+            raw_out = model.forward(X_batch)[:, 0]
+            
+            y_pred = torch.cat(
+                (y_pred, pred_from_raw(raw_out.detach().clone())))
+            
+            pred_prob = torch.cat(
+                (pred_prob, torch.sigmoid(raw_out.detach().clone())))
+            
+            y_true = torch.cat((y_true, y_batch.detach().clone()))
+            batch_loss = loss_fn(raw_out, y_batch).detach().cpu().item()
+            loss = running_avg(loss, batch_loss, bnum+1)
+            
+            snp_grads = torch.cat((snp_grads, 
+                                    gradient_metric(
+                                        model=model, loss_fn=loss_fn, 
+                                        X=X_batch, y=y_batch).detach().clone()))
+            # snp_grads = torch.cat((snp_grads, torch.zeros_like(y_batch)))
+            bnum += 1
 
-    return {'conf_mat':list(conf_mat), 'loss':loss, 'roc_auc':roc_auc}
+    class_weights = compute_class_weight(class_weight='balanced', 
+                                    classes=[0, 1], 
+                                    y=y_tensor.cpu().numpy())
+    class_weights = torch.tensor(class_weights, device=device).float()
+    conf_mat = gen_conf_mat(y_true.detach().clone(), y_pred, 
+                            class_weights=class_weights)
+    roc_auc = metrics_from_raw(y_true=y_true, pred_prob=pred_prob)['roc_auc']
+    snp_grads = torch.mean(snp_grads).cpu().item()
+                                            
+    return {'conf_mat':list(conf_mat), 'loss':loss, 'roc_auc':roc_auc, 
+            'snp_grads':snp_grads}
 
 def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray, 
           model_dict:dict, optim_dict:dict, train_dict:dict, 
@@ -861,12 +940,14 @@ def train(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndarray,
     best_test_acc = res['acc']['test'][best_ep]
     best_test_loss = res['loss']['test'][best_ep]
     best_test_roc_auc = res['roc_auc']['test'][best_ep]
+    best_snp_grads = res['snp_grads']['test'][best_ep]
     
     gc.collect()
     torch.cuda.empty_cache()
 
-    return {'Epoch':res['best_ep'], 
+    return {'Epoch':best_ep, 
             'Acc':best_test_acc, 
             'Loss':best_test_loss, 
-            'ROC_AUC':best_test_roc_auc}
+            'ROC_AUC':best_test_roc_auc,
+            'snp_grads':best_snp_grads}
 

@@ -150,11 +150,12 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
     gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
     gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
-    gene_win_df['win'] = [int(p.split('_')[2]) for p in gene_win_paths]
-    gene_win_df['win_count'] = gene_win_df.groupby('gene').transform('count').values
+    gene_win_df['win'] = [p.split('_')[2] for p in gene_win_paths]
+    gene_win_df['win_count'] = 0
+    gene_win_df['win_count'] = gene_win_df.groupby('gene')['win_count'].transform('count').to_list()
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
-
+    
     # Setting the model for the Experiment
     model = GWANNet5
     model_params = {
@@ -188,7 +189,7 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     # Remove genes that have already completed
     if os.path.exists(exp.summary_f):
         done_genes_df = pd.read_csv(exp.summary_f) 
-        print(done_genes_df.shape)
+        print(f'Number of genes with completed training: {done_genes_df.shape[0]}')
         gene_win_df['gene_win'] = gene_win_df.apply(lambda x:f'{x["gene"]}_{x["win"]}', axis=1).values
         gene_win_df = gene_win_df.loc[~gene_win_df['gene_win'].isin(done_genes_df['Gene'])]
     
@@ -223,12 +224,12 @@ if __name__ == '__main__':
     
     # Run model training pipeline
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
-    grp_size = 10
+    grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
     exp_name = f'Dummy{exp_name}'
-    model_pipeline(exp_name=f'Dummy{exp_name}', label=label, 
+    model_pipeline(exp_name=f'{exp_name}', label=label, 
                 param_folder=param_folder, gpu_list=gpu_list, 
                 grp_size=grp_size)
     

@@ -211,12 +211,12 @@ if __name__ == '__main__':
     # Run model training pipeline
     param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
-    grp_size = 10
+    grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
     glist = get_chrom_glist(chrom)
-    glist = ['TCERG1L', 'TECTB', 'TDRD1', 'TET1', 'TFAM', 'TEX36', 'TIAL1', 'TLL2', 'THNSL1']
+    glist = ['APOE', 'BIN1', 'PICALM', 'LRRC7', 'ADAM10', 'APH1B', 'MACROD2', 'WWOX']
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 
                    gpu_list=gpu_list, glist=glist, 

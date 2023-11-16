@@ -214,7 +214,12 @@ if __name__ == '__main__':
     grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
+    freeze_cov = int(os.environ['FREEZE_COV'])
+
+    if freeze_cov == 1:
+        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}_FrozenCov'
+    else:
+        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
     glist = get_chrom_glist(chrom)
     glist = ['APOE', 'BIN1', 'PICALM', 'LRRC7', 'ADAM10', 'APH1B', 'MACROD2', 'WWOX']
     model_pipeline(exp_name=exp_name, label=label, 

@@ -749,12 +749,13 @@ def start_training(X:np.ndarray, y:np.ndarray, X_test:np.ndarray, y_test:np.ndar
             continue
         weight_init_linear(named_module[1])
 
+    freeze_cov = int(os.environ['FREEZE_COV'])
     # Freeze covariate model weights
-    # if 'cov_model' in model_args:
-    #     for param in model.named_parameters():
-    #         if 'cov_model' in param[0]:
-    #             print('Freezing cov weights')
-    #             param[1].requires_grad = False
+    if freeze_cov == 1 and 'cov_model' in model_args:
+        for param in model.named_parameters():
+            if 'cov_model' in param[0]:
+                print('Freezing cov weights')
+                param[1].requires_grad = False
 
     loss_fn, optimiser, scheduler = training_stuff(model=model, damping=damp, 
                                         class_weights=class_weights, lr=lr, 

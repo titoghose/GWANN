@@ -1,18 +1,18 @@
-# export TORCH_SEED=0
-# export GROUP_SEED=0
-# export GROUP_SIZE=10
-# time python run_genes.py --label FH_AD --chrom -1 > "./Runs/0_genes.txt" 2>&1
-
 seeds=(0 73 347 816)
-group_size=10
-for seed in ${seeds[@]}
+group_size=20
+freeze_cov=(1)
+for fc in ${freeze_cov[@]}
 do
-    export TORCH_SEED=$seed
-    export GROUP_SEED=$seed
-    export GROUP_SIZE=$group_size
-    # time python cov_model.py --label FH_AD > "./Runs/"$seed"_chrom.txt" 2>&1
-    # time python run_genes.py --label FH_AD --chrom -1 > "./Runs/"$seed"_genes.txt" 2>&1
-    time python dummy_genes.py --label FH_AD > "./Runs/"$seed"_dummy.txt" 2>&1
+    for seed in ${seeds[@]}
+    do
+        export TORCH_SEED=$seed
+        export GROUP_SEED=$seed
+        export GROUP_SIZE=$group_size
+        export FREEZE_COV=$fc
+        time python cov_model.py --label FH_AD > "./Runs/"$seed"_chrom.txt" 2>&1
+        time python run_genes.py --label FH_AD --chrom -1 > "./Runs/"$seed"_genes.txt" 2>&1
+        time python dummy_genes.py --label FH_AD > "./Runs/"$seed"_dummy.txt" 2>&1
+    done
 done
 
 # seeds=(937 89 172 363 37 163)

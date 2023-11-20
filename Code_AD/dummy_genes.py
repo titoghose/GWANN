@@ -3,6 +3,7 @@ import multiprocessing as mp
 import os
 import sys
 from functools import partial
+import time
 from typing import Optional
 
 import numpy as np
@@ -43,7 +44,7 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     with open('{}/covs_{}.yaml'.format(param_folder, label), 'r') as f:
         covs = yaml.load(f, Loader=yaml.FullLoader)['COVARIATES']
     
-    ids = pd.read_csv('params/all_valid_iids.csv', dtype={'iid':str})['iid'].to_list()
+    ids = pd.read_csv(f'{param_folder}/all_ids_FH_AD.csv', dtype={'iid':str})['iid'].to_list()
     print(len(ids))
 
     split_data_base = sys_params['DATA_BASE_FOLDER'].split('/')
@@ -55,26 +56,62 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
     phen_cov.rename(columns={'ID_1':'iid'}, inplace=True)
     phen_cov.set_index('iid', inplace=True)
 
-    # lock = mp.Manager().Lock()
+    lock = mp.Manager().Lock()
     
+    # fargs = []
     # cnt = 0
-    # dosage_freqs = [0.02, 0.04, 0.06, 0.08]
-    # for num_snps in tqdm.tqdm([10, 20, 30, 40, 50], desc='Num_dummy_snps'):
+    # dosage_freqs = [0.0, 0.02, 0.04, 0.06, 0.08]
+    # for num_snps in tqdm.tqdm([50]*100, desc='Num_dummy_snps'):
     #     for dos_freq in dosage_freqs:
     #         file_prefix = dummy_plink(samples=ids, 
     #                 num_snps=num_snps, dosage_freq=dos_freq, 
-    #                 out_folder=f'{data_base_folder}/dummy_pgen')
-    #         pg2pd = PGEN2Pandas(prefix=file_prefix)
-    #         pg2pd.psam['IID'] = ids
-    #         pg2pd.psam['FID'] = ids
+    #                 out_folder=f'{data_base_folder}/dummy_pgen',
+    #                 file_prefix=f'Dummy{cnt}')
+    #         # pg2pd = PGEN2Pandas(prefix=file_prefix)
+    #         # pg2pd.psam['IID'] = ids
+    #         # pg2pd.psam['FID'] = ids
             
-    #         load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=f'Dummy{cnt}', 
-    #                 chrom='1', start=0, end=100, buffer=2500, label=label, 
-    #                 sys_params=sys_params, covs=covs, 
-    #                 preprocess=False, lock=lock)
+    #         # Random seed is set using the seconds in system time, so it
+    #         # is important to sleep for 1 second to avoid two datasets
+    #         # being generated with the same random seed.
+    #         # time.sleep(1)
+            
+    #         fargs.append(
+    #             [ids, 
+    #              file_prefix, 
+    #              phen_cov, 
+    #              f'Dummy{cnt}', 
+    #              '1',
+    #              0,
+    #              1000,
+    #              2500,
+    #              label,
+    #              sys_params,
+    #              covs,
+    #              True,
+    #              False,
+    #              lock])
     #         cnt += 1
+    #         if cnt > 500:
+    #             break
+
+    # with mp.Pool(20) as pool:
+    #     pool.starmap(write_dummy_csvs, fargs, chunksize=1)
 
     shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
+
+def write_dummy_csvs(ids:list, pg2pd_path:str, phen_cov:pd.DataFrame, gene:str, 
+                     chrom:str, start:int, end:int, buffer:int, label:str, 
+                     sys_params:dict, covs:list, save_data:bool, preprocess:bool, 
+                     lock:mp.Lock) -> None:
+    
+    pg2pd = PGEN2Pandas(prefix=pg2pd_path)
+    pg2pd.psam['IID'] = ids
+    pg2pd.psam['FID'] = ids
+    load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=gene, 
+            chrom=chrom, start=start, end=end, buffer=buffer, label=label, 
+            sys_params=sys_params, covs=covs, save_data=save_data,
+            preprocess=preprocess, lock=lock)
 
 def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
     """Shuffle the SNPs in each dummy dataset multiple times to create
@@ -101,12 +138,16 @@ def shuffle_dummy_csvs(data_folder:str, covs:list) -> None:
     par_func = partial(shuffle_snps, data_folder=data_folder, covs=covs, 
                        wins_folder=wins_folder)
     fargs = []
-    num_shuffles = 200
+    num_shuffles = 1
     for f in flist:
         fargs.append((f, random_seeds[i*num_shuffles:(i+1)*num_shuffles]))
         i += 1
-    with mp.Pool(len(fargs)) as pool:
-        pool.starmap(par_func, fargs)
+    
+    # with mp.Pool(len(fargs)) as pool:
+    #     pool.starmap(par_func, fargs)
+
+    for farg in tqdm.tqdm(fargs, desc='Rename'):
+        par_func(*farg)
         
 def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list, 
                  wins_folder:str) -> None:
@@ -114,15 +155,16 @@ def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list,
     i = 0
     for snum in tqdm.tqdm(range(len(random_seeds)), 
                           desc=f'{f.split("_")[1]} - shuffle'):
-        shuffled_snps = df.iloc[:, :-(len(covs)+1)].values
-        np.random.seed(random_seeds[i])
-        np.random.shuffle(shuffled_snps)
-        df.iloc[:, :-(len(covs)+1)] = shuffled_snps
+        # shuffled_snps = df.iloc[:, :-(len(covs)+1)].values
+        # np.random.seed(random_seeds[i])
+        # np.random.shuffle(shuffled_snps)
+        # df.iloc[:, :-(len(covs)+1)] = shuffled_snps
 
         data_path_split = f.split('_')
-        data_path_split.insert(2, str(snum+50))
+        data_path_split.insert(2, str(snum))
         data_path = f'{wins_folder}/{"_".join(data_path_split)}'
-        df.to_csv(data_path)
+        # df.to_csv(data_path)
+        os.rename(f'{data_folder}/{f}', data_path)
         i += 1
 
 def model_pipeline(exp_name:str, label:str, param_folder:str, 

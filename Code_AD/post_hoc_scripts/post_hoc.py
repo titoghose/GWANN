@@ -1,3 +1,5 @@
+import copy
+import datetime
 import json
 import os
 import subprocess
@@ -12,11 +14,12 @@ import requests
 import seaborn as sns
 import tqdm
 from adjustText import adjust_text
+from Bio import Entrez
 from mygene import MyGeneInfo
 from scipy.stats import skewnorm
 from statsmodels.stats.multitest import multipletests
 
-sys.path.append('..')
+sys.path.append('../..')
 from GWANN.dataset_utils import get_win_snps
 
 
@@ -62,22 +65,46 @@ class EstimatePValue:
     def estimate(self, acc:float) -> float:
         return skewnorm.sf(acc, *self.moments)
 
+def STRING_PPI_enrichment(gene_list:list, analysis_name:str='') -> dict:
+
+    string_api_url = "https://version-11-5.string-db.org/api"
+    output_format = "tsv"
+    method = "ppi_enrichment"
+
+    request_url = "/".join([string_api_url, output_format, method])
+
+    params = {
+        "identifiers" : "%0d".join(gene_list),
+        "species" : 9606, # NCBI species ID for human
+        "caller_identity" : analysis_name}
+    
+    response = requests.post(request_url, data=params)
+
+    lines = response.text.strip().split("\n")
+    header = lines[0]
+    out_dict = {h:None for h in header.split("\t")}
+    for line in lines[1:]:
+        for hi, h in enumerate(out_dict.keys()):
+            out_dict[h] = line.split("\t")[hi]
+    
+    return out_dict
+
 def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bool):
-    if not os.path.exists(f'./results_{exp_name}'):
-        os.mkdir(f'./results_{exp_name}')
+    if not os.path.exists(f'../results_{exp_name}'):
+        os.mkdir(f'../results_{exp_name}')
     
     null_df = pd.read_csv(
-        f'./NN_Logs/' + 
+        f'../NN_Logs/' + 
         f'{label}_ChrDummy{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
         f'{label}_ChrDummy{exp_name}_2500bp_summary.csv')
     if greater_is_better:
         ep = EstimatePValue(null_accs=null_df[metric].values)
     else:
         ep = EstimatePValue(null_accs=-1*null_df[metric].values)
-    ep.plot_null_dist(f'./results_{exp_name}/{label}_{metric}_null_dist.png')
+    ep.plot_null_dist(f'../results_{exp_name}/{label}_{metric}_null_dist.png')
 
     summ_df = pd.read_csv(
-        f'./NN_Logs/'+
+        f'../NN_Logs/'+
         f'{label}_Chr{exp_name}_2500bp_summary.csv')
     if greater_is_better:
         summ_df['P'] = summ_df[metric].apply(lambda x: ep.estimate(x)).values
@@ -88,9 +115,9 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df[f'P_bonf'] = corr_p
     summ_df[f'alpha_bonf'] = alpha_bonf
     summ_df[f'P_fdr_bh'] = multipletests(summ_df['P'].values, method='fdr_bh')[1]
-    summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv', index=False)
+    summ_df.to_csv(f'../results_{exp_name}/{label}_{metric}_{exp_name}_summary.csv', index=False)
     hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_hits.csv', index=False)
+    hits_df.to_csv(f'../results_{exp_name}/{label}_{metric}_{exp_name}_hits.csv', index=False)
 
     gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
     gdf.set_index('symbol', inplace=True)
@@ -100,9 +127,9 @@ def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bo
     summ_df.drop_duplicates(['Gene'], inplace=True)
     summ_df['entrez_id'] = gdf.loc[summ_df['Gene'].values]['id'].values
     summ_df['ens_g'] = gdf.loc[summ_df['Gene'].values]['ens_g'].values
-    summ_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
+    summ_df.to_csv(f'../results_{exp_name}/{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
     hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'./results_{exp_name}/{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
+    hits_df.to_csv(f'../results_{exp_name}/{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
     
 def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
     comb_summ_df = []
@@ -113,7 +140,7 @@ def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
                     f'{label}_Chr{exp_name}_2500bp_summary.csv')
         comb_summ_df.append(summ_df)
     comb_summ_df = pd.concat(comb_summ_df)
-    comb_summ_path = (f'./NN_Logs/' +
+    comb_summ_path = (f'../NN_Logs/' +
                         # f'{label}_Chr{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
                         f'{label}_Chr{exp_name}_2500bp_summary.csv')
     if not os.path.exists(comb_summ_path):
@@ -127,7 +154,7 @@ def combine_all_runs():
     for dummy in ['Dummy', '']:
         merged = []
         for seed in seeds:
-            df = pd.read_csv(f'./NN_Logs/' + 
+            df = pd.read_csv(f'../NN_Logs/' + 
                             f'FH_AD_Chr{dummy}Sens8_{seed}{seed}_GS10_v4_2500bp_summary.csv')
             df['Seed'] = seed
             df = df[['Gene', 'Seed', 'Chrom', 'SNPs', 'Epoch', 'Acc', 'Loss', 'ROC_AUC', 'Time']]
@@ -138,16 +165,60 @@ def combine_all_runs():
         merged.sort_values(['Gene', 'Seed'], inplace=True, ignore_index=True)
         merged.drop_duplicates(['Gene', 'Seed'], inplace=True, ignore_index=True)
         if dummy == 'Dummy':
-            merged.to_csv(f'./results_Sens8_v4/results_Sens8_dummy_combined.csv', 
+            merged.to_csv(f'../results_Sens8_v4/results_Sens8_dummy_combined.csv', 
                         index=False)
         else:
-            merged.to_csv(f'./results_Sens8_v4/results_Sens8_combined.csv', 
+            merged.to_csv(f'../results_Sens8_v4/results_Sens8_combined.csv', 
                 index=False)
         
         print(merged.shape)
 
+def search_pubmed(glist:list) -> dict:
+    Entrez.email = "upamanyu.ghose@psych.ox.ac.uk"
+    pubmed_df = []
+    for gene in tqdm.tqdm(glist, desc='Genes'):
+        gene_pubmed_df = {'Gene':[], 'Date':[], 'Journal':[], 'PMID':[], 
+                          'Title':[]}
+        term = (f"({gene}) AND (Alzheimer OR Dementia)")
+        
+        # ESearch: search PubMed with the specified term
+        handle = Entrez.esearch(db="pubmed", term=term, retmax=10)
+        record = Entrez.read(handle)
+        handle.close()
+
+        # EFetch: retrieve the details of the retrieved articles
+        id_list = record["IdList"]
+        if id_list:
+            id_string = ",".join(id_list)
+            handle = Entrez.efetch(db="pubmed", id=id_string, rettype="xml")
+            results = Entrez.read(handle)
+            handle.close()
+            
+            for article in results["PubmedArticle"]:
+                try:
+                    date = article['MedlineCitation']['DateRevised']
+                except KeyError:    
+                    date = article['MedlineCitation']['DateCompleted']
+                date = f"{date['Year']}-{date['Month']}-{date['Day']}"
+                date = datetime.datetime.strptime(date, "%Y-%m-%d")
+                journal = article["MedlineCitation"]["Article"]["Journal"]["Title"]
+                title = article["MedlineCitation"]["Article"]["ArticleTitle"]
+                pmid = article["MedlineCitation"]["PMID"]
+                gene_pubmed_df['Gene'].append(gene)
+                gene_pubmed_df['Title'].append(title)
+                gene_pubmed_df['Journal'].append(journal)
+                gene_pubmed_df['Date'].append(date)
+                gene_pubmed_df['PMID'].append(pmid)
+            gene_pubmed_df = pd.DataFrame.from_dict(gene_pubmed_df)
+            gene_pubmed_df.sort_values('Date', inplace=True, ascending=False)
+            gene_pubmed_df['Date'] = gene_pubmed_df['Date'].apply(lambda x:x.strftime('%Y-%m-%d'))
+            pubmed_df.append(gene_pubmed_df)
+    
+    pubmed_df = pd.concat(pubmed_df)
+    pubmed_df.to_csv('../results_Sens8_v4/pubmed_search.csv', index=False)
+
 def mine_agora(exp_name:str, hits_df_path:str) -> None:
-    agora_res_path = f'./results_{exp_name}/enrichments/AGORA.csv'
+    agora_res_path = f'../results_{exp_name}/enrichments/AGORA.csv'
 
     if not os.path.exists(agora_res_path):
 
@@ -197,25 +268,34 @@ def mine_agora(exp_name:str, hits_df_path:str) -> None:
         agora_df = pd.read_csv(agora_res_path)
 
     # Agora heatmap
-    agora_df = agora_df[['is_igap', 'is_any_rna_changed_in_ad_brain', 
+    agora_df = agora_df[['is_any_rna_changed_in_ad_brain', 
                          'is_any_protein_changed_in_ad_brain', 'is_eqtl', 
                          'BRAAK', 'CERAD', 'COGDX', 'hgnc_symbol']]
     agora_df['COGDX'] = agora_df['COGDX'] < 0.05
     agora_df['BRAAK'] = agora_df['BRAAK'] < 0.05
     agora_df['CERAD'] = agora_df['CERAD'] < 0.05
-    agora_df.set_index('hgnc_symbol', inplace=True)
+    agora_df.rename(columns={'is_any_rna_changed_in_ad_brain':'RNA change \nin AD brain',
+                             'is_any_protein_changed_in_ad_brain':'Protein change \nin AD brain',
+                             'is_eqtl':'Brain eQTL',
+                             'hgnc_symbol': 'Gene'}, inplace=True)
+    agora_df.set_index('Gene', inplace=True)
     agora_df = agora_df.apply(lambda x:x.astype(float), axis=0)
-    agora_df.sort_values(agora_df.columns.to_list(), ascending=False, inplace=True)
-    agora_df = agora_df.T
+
+    # order according to gwas catalog overlap plot order
+    with open('../results_Sens8_v4/enrichments/gwas_catalog_overlap_ytick_order.txt', 'r') as f:
+        gene_order = f.read().split('\n')
+    agora_df = agora_df.loc[gene_order]
     
-    sns.set(font_scale=0.9)
-    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-    sns.heatmap(data=agora_df, cmap='Reds', cbar=False, xticklabels=True, 
-                linewidths=0.2, linecolor='gray', ax=ax)
+    fig, ax = plt.subplots(1, 1, figsize=(5, 8))
+    cmap = copy.copy(plt.cm.get_cmap('Reds'))
+    cmap.set_under(color='white')
+    sns.heatmap(data=agora_df, cmap=cmap, cbar=False, xticklabels=True, 
+                linewidths=0, ax=ax, vmin=0.1, vmax=1)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=10)
     ax.set_xlabel('')
     fig.tight_layout()
-    fig.savefig(f'./results_{exp_name}/enrichments/AGORA_heatmap.svg')
-    fig.savefig(f'./results_{exp_name}/enrichments/AGORA_heatmap.png', dpi=100)
+    fig.savefig(f'../results_{exp_name}/enrichments/AGORA_heatmap.svg')
+    fig.savefig(f'../results_{exp_name}/enrichments/AGORA_heatmap.png', dpi=100)
     plt.close()
 
 def manhattan(exp_name:str, exp_summary_file:str, hits_df_path:str, 
@@ -288,7 +368,7 @@ def manhattan(exp_name:str, exp_summary_file:str, hits_df_path:str,
     plt.ylabel('-log10 (P)', fontsize=14)
     plt.title('{} - manhattan'.format(exp_name))
     
-    fname = f'./results_{exp_name}/enrichments/manhattan'
+    fname = f'../results_{exp_name}/enrichments/manhattan'
     plt.tight_layout()
     plt.savefig(f'{fname}.svg', bbox_inches='tight')
     plt.savefig(f'{fname}.png', dpi=100)
@@ -301,13 +381,41 @@ def ld_link_matrix(snp_list:list, out_file:str):
     cmd += f'{snps}'
     subprocess.run(cmd, shell=True)
 
+def hit_LD_prune(exp_name:str, exp_summary_file:str, p_thresh:float) -> None:
+    ld_pair = pd.read_csv(f'../results_{exp_name}/LD/gene_pair_LD.csv')
+
+    summ_df = pd.read_csv(exp_summary_file)
+    summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
+    summ_df['Chrom'] = summ_df['Chrom'].astype(int).values
+    summ_df['Win'] = summ_df['Gene'].apply(lambda x:int(x.split('_')[1])).values
+    summ_df['Gene'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
+    hit_df = summ_df.loc[summ_df['p_stat_trial_A'] < p_thresh].copy()
+    hit_df.sort_values(['Gene', 'stat_trial_A'], ascending=[True, True], 
+                        inplace=True)
+    hit_df.drop_duplicates(['Gene'], inplace=True)
+
+    hit_df['pruned'] = False
+    for g1, g2 in ld_pair[['Gene1', 'Gene2']].values:
+        # Prune gene in the pair with higher statistic value (loss)
+        try:
+            pair_stats = hit_df.loc[
+                hit_df['Gene'].isin([g1, g2])]
+            if set(pair_stats['Gene']) != set([g1, g2]):
+                continue
+            pruned_index = pair_stats['stat_trial_A'].sort_values().index[-1]
+            hit_df.loc[pruned_index, 'pruned'] = True
+        except IndexError:
+            print(f'{g1} or {g2} not in hit_df.')
+            
+    hit_df.to_csv(f'../results_{exp_name}/LD/pruned_gene_hits_{p_thresh:.0e}.csv', index=False)
+
 def hit_gene_LD(exp_name:str, exp_summary_file:str, p_thresh:float, 
                 pgen_data_base:str) -> None:
     samples_df = pd.read_csv('/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8/all_ids_FH_AD.csv')
     samples_df = samples_df[['iid']]
     samples_df['#FID'] = samples_df['iid'].values
     samples_df.rename(columns={'iid':'IID'}, inplace=True)
-    samples_df[['#FID', 'IID']].to_csv(f'./results_{exp_name}/LD/keep.csv', index=False, sep='\t')
+    samples_df[['#FID', 'IID']].to_csv(f'../results_{exp_name}/LD/keep.csv', index=False, sep='\t')
     
     summ_df = pd.read_csv(exp_summary_file)
     summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
@@ -342,7 +450,7 @@ def hit_gene_LD(exp_name:str, exp_summary_file:str, p_thresh:float,
     snp_df = pd.concat(snps)
     snp_df['GENE'] = genes
     snp_df.rename(columns={'CHROM':'#CHROM'}, inplace=True)
-    snp_df.to_csv(f'./results_{exp_name}/LD/hit_snps.csv', index=False, sep='\t')
+    snp_df.to_csv(f'../results_{exp_name}/LD/hit_snps.csv', index=False, sep='\t')
 
     # Perform LD calculations between hit snps
     gene_pair_ld = []
@@ -351,7 +459,7 @@ def hit_gene_LD(exp_name:str, exp_summary_file:str, p_thresh:float,
         chrom_df.drop_duplicates(['ID'], inplace=True)
         
         snp_list = chrom_df['ID'].to_list()
-        out_file = f'./results_{exp_name}/LD/chrom{chrom}_LDMatrix.csv'
+        out_file = f'../results_{exp_name}/LD/chrom{chrom}_LDMatrix.csv'
         ld_link_matrix(snp_list=snp_list, out_file=out_file)
 
         chrom_df.set_index('ID', inplace=True)
@@ -373,35 +481,7 @@ def hit_gene_LD(exp_name:str, exp_summary_file:str, p_thresh:float,
         os.remove(out_file)
 
     gene_pair_ld = pd.concat(gene_pair_ld)
-    gene_pair_ld.to_csv(f'./results_{exp_name}/LD/gene_pair_LD.csv', index=False)
-
-def hit_LD_prune(exp_name:str, exp_summary_file:str, p_thresh:float) -> None:
-    ld_pair = pd.read_csv(f'./results_{exp_name}/LD/gene_pair_LD.csv')
-
-    summ_df = pd.read_csv(exp_summary_file)
-    summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
-    summ_df['Chrom'] = summ_df['Chrom'].astype(int).values
-    summ_df['Win'] = summ_df['Gene'].apply(lambda x:int(x.split('_')[1])).values
-    summ_df['Gene'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
-    hit_df = summ_df.loc[summ_df['p_stat_trial_A'] < p_thresh].copy()
-    hit_df.sort_values(['Gene', 'stat_trial_A'], ascending=[True, True], 
-                        inplace=True)
-    hit_df.drop_duplicates(['Gene'], inplace=True)
-
-    hit_df['pruned'] = False
-    for g1, g2 in ld_pair[['Gene1', 'Gene2']].values:
-        # Prune gene in the pair with higher statistic value (loss)
-        try:
-            pair_stats = hit_df.loc[
-                hit_df['Gene'].isin([g1, g2])]
-            if set(pair_stats['Gene']) != set([g1, g2]):
-                continue
-            pruned_index = pair_stats['stat_trial_A'].sort_values().index[-1]
-            hit_df.loc[pruned_index, 'pruned'] = True
-        except IndexError:
-            print(f'{g1} or {g2} not in hit_df.')
-            
-    hit_df.to_csv(f'./results_{exp_name}/LD/pruned_gene_hits_{p_thresh:.0e}.csv', index=False)
+    gene_pair_ld.to_csv(f'../results_{exp_name}/LD/gene_pair_LD.csv', index=False)
 
 if __name__ == '__main__':
     # for rseed in [937, 89, 172, 37, 363, 142]:
@@ -412,20 +492,42 @@ if __name__ == '__main__':
     #                             label=label, exp_name=exp_name)
     # combine_all_runs()
     
-    # FDR 0.05 p-thresh = 1e-23
-    # FDR 0.1 p-thresh = 1e-14
+    # FDR 0.05 p-thresh = 1e-25
+    # FDR 0.1 p-thresh = 1e-19
     # hit_gene_LD(exp_name='Sens8_v4', 
-    #             exp_summary_file='./results_Sens8_v4/summary_nsuperwins_1.csv', 
-    #             p_thresh=1e-14, 
+    #             exp_summary_file='../results_Sens8_v4/summary_nsuperwins_1.csv', 
+    #             p_thresh=1e-19, 
     #             pgen_data_base='/mnt/sdh/upamanyu/GWANN_pgen')
-    # for p_thresh in [1e-23, 1e-14]:
+    # for p_thresh in [1e-25, 1e-19]:
     #     hit_LD_prune(exp_name='Sens8_v4', 
-    #                 exp_summary_file='./results_Sens8_v4/summary_nsuperwins_1.csv', 
+    #                 exp_summary_file='../results_Sens8_v4/summary_nsuperwins_1.csv', 
     #                 p_thresh=p_thresh)
     
+    # Manhattan Plot
     # manhattan(exp_name='Sens8_v4', 
-    #           exp_summary_file='./results_Sens8_v4/summary_nsuperwins_1.csv', 
-    #           hits_df_path='./results_Sens8_v4/LD/pruned_gene_hits_1e-23.csv', 
-    #           p_thresh=1e-23, p_nominal_thresh=1e-14, p_col='p_stat_trial_A')
-    mine_agora(exp_name='Sens8_v4', 
-               hits_df_path='./results_Sens8_v4/LD/pruned_gene_hits_1e-23.csv')
+    #           exp_summary_file='../results_Sens8_v4/summary_nsuperwins_1.csv', 
+    #           hits_df_path='../results_Sens8_v4/LD/pruned_gene_hits_1e-25.csv', 
+    #           p_thresh=1e-25, p_nominal_thresh=1e-19, p_col='p_stat_trial_A')
+    
+    # AGORA
+    # mine_agora(exp_name='Sens8_v4', 
+    #            hits_df_path='../results_Sens8_v4/LD/pruned_gene_hits_1e-25.csv')
+    
+    # Top 100 genes for disease, STRING and FUMA enrichment
+    # summ_df = pd.read_csv('../results_Sens8_v4/summary_nsuperwins_1.csv')
+    # summ_df = summ_df.loc[~summ_df['Chrom'].isna()]
+    # summ_df['Chrom'] = summ_df['Chrom'].astype(int).values
+    # summ_df['Win'] = summ_df['Gene'].apply(lambda x:int(x.split('_')[1])).values
+    # summ_df['Gene'] = summ_df['Gene'].apply(lambda x:x.split('_')[0]).values
+    # summ_df.sort_values(['Gene', 'stat_trial_A'], ascending=[True, True], 
+    #                     inplace=True)
+    # summ_df.drop_duplicates(['Gene'], inplace=True)
+    # summ_df.sort_values(['stat_trial_A'], inplace=True)
+    # summ_df.to_csv('../results_Sens8_v4/summary_nsuperwins_1_gene_level.csv', index=False)
+    # top_100 = summ_df.head(100)
+    # top_100.to_csv('../results_Sens8_v4/top_100_genes.csv', index=False)
+    
+    # Pubmed search
+    hits = pd.read_csv('../results_Sens8_v4/LD/pruned_gene_hits_1e-25.csv')
+    hits = hits.loc[~hits['pruned']]['Gene'].to_list()
+    search_pubmed(hits)

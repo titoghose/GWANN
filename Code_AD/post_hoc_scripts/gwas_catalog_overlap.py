@@ -23,19 +23,19 @@ def group_AD_related_traits(gwas_all_assoc) -> pd.DataFrame:
             gwas_all_assoc['DISEASE/TRAIT'].str.contains('PHF-tau', case=False)
             ].copy()
 
-    gwas_AD_assoc.loc[gwas_AD_assoc['DISEASE/TRAIT'].str.contains('Alzheimer', case=False), 'DISEASE/TRAIT'] = 'Alzheimer'
-    gwas_AD_assoc.loc[gwas_AD_assoc['DISEASE/TRAIT'].str.contains('Neurofibrillary tangles', case=False), 'DISEASE/TRAIT'] = 'Neurofibrillary tangles'
+    gwas_AD_assoc.loc[gwas_AD_assoc['DISEASE/TRAIT'].str.contains('Alzheimer', case=False), 'DISEASE/TRAIT'] = 'Alzheimer\'s disease'
     gwas_AD_assoc.loc[
+        gwas_AD_assoc['DISEASE/TRAIT'].str.contains('Neurofibrillary tangles', case=False) |
         gwas_AD_assoc['DISEASE/TRAIT'].str.contains('p-tau', case=False) |
         gwas_AD_assoc['DISEASE/TRAIT'].str.contains('t-tau', case=False) |
-        gwas_AD_assoc['DISEASE/TRAIT'].str.contains('PHF-tau', case=False), 'DISEASE/TRAIT'] = 't-tau, p-tau, PHF-tau'
+        gwas_AD_assoc['DISEASE/TRAIT'].str.contains('PHF-tau', case=False), 'DISEASE/TRAIT'] = 'Neurofibrillary tangles or \ntau protein meausurement'
     
     return gwas_AD_assoc
 
 
 overlap_path = '../results_Sens8_v4/enrichments/gwas_catalog_overlap.csv'
 if not os.path.exists(overlap_path):
-    gwas_all_assoc = pd.read_csv('/mnt/sdb/GWAS_Catalog_AD/gwas_catalog_v1.0-associations_e110_r2023-07-29.tsv', 
+    gwas_all_assoc = pd.read_csv('/mnt/sdb/GWAS_Catalog_AD/gwas_catalog_v1.0-associations_e111_r2024-01-19.tsv', 
                                 sep='\t', dtype={'MAPPED_GENE':str, 'REPORTED GENE(S)':str}, 
                                 keep_default_na=False)
 
@@ -59,12 +59,12 @@ if not os.path.exists(overlap_path):
     print('hello')
 
     # Overlap with GWANN hits
-    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/LD/pruned_gene_hits_1e-23.csv')
+    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/LD/pruned_gene_hits_1e-25.csv')
     nn_AD_hits = nn_AD_hits.loc[~nn_AD_hits['pruned']]
     nn_AD_genes = nn_AD_hits['Gene'].to_list()
 
     gwas_AD_overlap = gwas_AD_assoc.loc[gwas_AD_assoc['Gene'].isin(nn_AD_genes)]
-    gwas_AD_overlap = gwas_AD_overlap.loc[gwas_AD_overlap['P-VALUE'] < 1e-5]
+    gwas_AD_overlap = gwas_AD_overlap.loc[gwas_AD_overlap['P-VALUE'] < 5e-8]
     gwas_AD_overlap.sort_values(['Gene', 'DISEASE/TRAIT', 'P-VALUE'], 
                                 ascending=True, inplace=True)
     gwas_AD_overlap.drop_duplicates(['Gene', 'DISEASE/TRAIT', 'PUBMEDID'], inplace=True)
@@ -78,7 +78,7 @@ if not os.path.exists(overlap_path):
     # Add non-overlapping genes
     non_overlapping = set(nn_AD_genes).difference(set(gwas_AD_overlap.index.to_list()))
     for g in non_overlapping:
-        gwas_AD_overlap.loc[g] = [0, 0, 0]
+        gwas_AD_overlap.loc[g] = [0]*len(gwas_AD_overlap.columns)
     gwas_AD_overlap.reset_index().to_csv(overlap_path, index=False)
 
 else:
@@ -86,19 +86,18 @@ else:
 
 # Heatmap 
 gwas_AD_overlap[gwas_AD_overlap == 0] = np.nan
-gwas_AD_overlap.sort_values(['Alzheimer', 'Neurofibrillary tangles', 't-tau, p-tau, PHF-tau'], 
+gwas_AD_overlap.sort_values(['Alzheimer\'s disease', 'Neurofibrillary tangles or \ntau protein meausurement'], 
                             ascending=False, inplace=True)
-gwas_AD_overlap = gwas_AD_overlap.T
-fig, ax = plt.subplots(1, 1, figsize=(12, 3))
+gwas_AD_overlap = gwas_AD_overlap
+fig, ax = plt.subplots(1, 1, figsize=(4, 8))
 ax.tick_params(labelsize=7)
-sns.heatmap(data=gwas_AD_overlap, ax=ax, xticklabels=True, cmap='Reds', annot=True)
-ax.collections[0].colorbar.set_label("Number of GWAS", fontsize=8)
+sns.heatmap(data=gwas_AD_overlap, ax=ax, yticklabels=True, cmap='Reds', 
+            annot=True)
+ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=10)
+with open('../results_Sens8_v4/enrichments/gwas_catalog_overlap_ytick_order.txt', 'w') as f:
+    f.write('\n'.join([l.get_text() for l in ax.get_yticklabels()]))
+ax.collections[0].colorbar.set_label("Number of GWAS", fontsize=10)
 plt.show()
-
-
-# colorbar = ax.collections[0].colorbar
-# colorbar.set_ticks([0, 1, 2]) 
-# colorbar.set_ticklabels(['No evidence', 'P<1e-5', 'P<5e-8'])
 
 fig.tight_layout()
 fig.savefig('../results_Sens8_v4/enrichments/gwas_catalog_overlap.svg')

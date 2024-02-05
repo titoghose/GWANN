@@ -1,21 +1,22 @@
 # coding: utf-8
+import csv
 import multiprocessing as mp
 import os
 import pickle
 import traceback
 from functools import partial
 from typing import Optional, Union
-import csv
 
 import numpy as np
 import pandas as pd
 import pgenlib as pg
 from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils.class_weight import compute_class_weight
 
 from GWANN.utils import vprint
+
 
 class PGEN2Pandas:
     

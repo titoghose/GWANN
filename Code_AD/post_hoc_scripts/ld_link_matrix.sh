@@ -1,5 +1,7 @@
 out_file=$1
-snp_list=$2
+snp_file=$2
+snp_list=$(cat $snp_file | tr "\n" "," | sed "s/,$//" | sed "s/,/\\\n/g")
+# echo $out_file
 curl \
     -k \
     -H "Content-Type: application/json" \

@@ -32,8 +32,8 @@ def group_AD_related_traits(gwas_all_assoc) -> pd.DataFrame:
     
     return gwas_AD_assoc
 
-
-overlap_path = '../results_Sens8_v4/enrichments/gwas_catalog_overlap.csv'
+os.chdir('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/')
+overlap_path = 'enrichments/gwas_catalog_overlap_1e-25.csv'
 if not os.path.exists(overlap_path):
     gwas_all_assoc = pd.read_csv('/mnt/sdb/GWAS_Catalog_AD/gwas_catalog_v1.0-associations_e111_r2024-01-19.tsv', 
                                 sep='\t', dtype={'MAPPED_GENE':str, 'REPORTED GENE(S)':str}, 
@@ -59,7 +59,7 @@ if not os.path.exists(overlap_path):
     print('hello')
 
     # Overlap with GWANN hits
-    nn_AD_hits = pd.read_csv('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/LD/pruned_gene_hits_1e-25.csv')
+    nn_AD_hits = pd.read_csv('LD/pruned_gene_hits_1e-25.csv')
     nn_AD_hits = nn_AD_hits.loc[~nn_AD_hits['pruned']]
     nn_AD_genes = nn_AD_hits['Gene'].to_list()
 
@@ -89,17 +89,24 @@ gwas_AD_overlap[gwas_AD_overlap == 0] = np.nan
 gwas_AD_overlap.sort_values(['Alzheimer\'s disease', 'Neurofibrillary tangles or \ntau protein meausurement'], 
                             ascending=False, inplace=True)
 gwas_AD_overlap = gwas_AD_overlap
-fig, ax = plt.subplots(1, 1, figsize=(4, 8))
-ax.tick_params(labelsize=7)
+fig, ax = plt.subplots(1, 1, figsize=(4.6, 10))
 sns.heatmap(data=gwas_AD_overlap, ax=ax, yticklabels=True, cmap='Reds', 
             annot=True)
-ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=10)
-with open('../results_Sens8_v4/enrichments/gwas_catalog_overlap_ytick_order.txt', 'w') as f:
+for t in ax.texts:
+    t.set_fontsize(16)
+ax.set_ylabel('Genes', fontsize=16)
+ax.set_xticklabels(ax.get_xticklabels(), rotation=90, fontsize=16)
+ax.set_yticklabels(ax.get_yticklabels(), fontsize=16)
+cbar = ax.collections[0].colorbar
+cbar.set_label("Number of GWAS", fontsize=16)
+cbar.ax.tick_params(labelsize=16)
+
+with open('enrichments/gwas_catalog_overlap_ytick_order.txt', 'w') as f:
     f.write('\n'.join([l.get_text() for l in ax.get_yticklabels()]))
-ax.collections[0].colorbar.set_label("Number of GWAS", fontsize=10)
+
 plt.show()
 
 fig.tight_layout()
-fig.savefig('../results_Sens8_v4/enrichments/gwas_catalog_overlap.svg')
-fig.savefig('../results_Sens8_v4/enrichments/gwas_catalog_overlap.png', dpi=100)
+fig.savefig('enrichments/gwas_catalog_overlap_1e-25.svg')
+fig.savefig('enrichments/gwas_catalog_overlap_1e-25.png', dpi=300)
 plt.close()

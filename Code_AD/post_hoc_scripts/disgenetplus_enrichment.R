@@ -1,25 +1,29 @@
+# The new API is super annoying
+# Allows only 2-3 queries in 24 hours
+
 ################################################################################
 # DISEASE ENRICHMENT ANALYSIS
 
 library(devtools)
-# install_bitbucket("ibi_group/disgenet2r")
-library(disgenet2r)
+# install_gitlab("medbio/disgenetplus2r")
+
+library(disgenetplus2r)
 library(ggplot2)
 library(stringr)
 library(dplyr)
 
-disgenet_api_key <- "fc1f9b81bcd055c9518522ba15bd1d0638f0ccf4"
-Sys.setenv(DISGENET_API_KEY=disgenet_api_key)
+disgenet_api_key <- "f6a871cc-b843-4de2-8908-964fff1a4469"
+Sys.setenv(DISGENETPLUS_API_KEY=disgenet_api_key)
 # ---------------------------------------------------------------------------- #
 
-setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4")
-nnHits = read.csv("top_100_genes.csv", sep=",", header=T)
+# setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4")
+# nnHits = read.csv("top_100_genes.csv", sep=",", header=T)
 # res_enrich <- disease_enrichment(entities = nnHits$Gene, vocabulary = "HGNC", database = "ALL")
 
-# setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/trad_GWAS")
-# nnHits = read.csv("trad_GWAS_top_100.csv", sep=",", header=T)
+setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/trad_GWAS")
+nnHits = read.csv("trad_GWAS_top_100.csv", sep=",", header=T)
+colnames(nnHits)[colnames(nnHits) == "symbol"] <- "Gene"
 
-# if else to check if the file exists
 enr_file_name <- "enrichments/disgenet_enrichment.tsv" 
 if (file.exists(enr_file_name)) {
     qresult <- read.table(enr_file_name, sep = "\t", header = TRUE)
@@ -30,12 +34,21 @@ if (file.exists(enr_file_name)) {
                         database = "ALL",
                         qresult = qresult)
 } else {
-    res_enrich <- disease_enrichment(entities = nnHits$Gene, vocabulary = "HGNC", database = "ALL")
-    res_enrich@qresult$Description <- toupper(res_enrich@qresult$Description)
-    write.table(res_enrich@qresult, file = enr_file_name, sep = "\t", row.names = FALSE)
+    res_enrich <- gene2disease(gene = nnHits$Gene, database = "ALL", score =c(0.5, 1), verbose  = TRUE)
+    disgenetplus2r::plot(res_enrich, type='Heatmap', limit=10, interactive=FALSE)
+    ggsave(filename = "enrichments/disgenet_enrichment.png", width = 10, height = 10)
+    # df_list <- lapply(res_enrich@qresult, function(x) {
+    #     if (is.list(x)) {
+    #         as.data.frame(t(unlist(x)))
+    #     } else {
+    #         as.data.frame(t(x))
+    #     }
+    #     })
+    # res_enrich@qresult <- do.call(rbind, df_list)
+    # write.table(res_enrich@qresult, file = enr_file_name, sep = "\t", row.names = FALSE)
 }
 
-
+write.table(res_enrich@qresult, file = enr_file_name, sep = "\t", row.names = FALSE)
 res_enrich@qresult$BgRatio_eval <- sapply(res_enrich@qresult$BgRatio, function(x) eval(parse(text=x)))
 res_enrich@qresult$Ratio_eval <- sapply(res_enrich@qresult$Ratio, function(x) eval(parse(text=x)))
 res_enrich@qresult <- res_enrich@qresult %>% 

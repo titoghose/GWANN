@@ -1240,9 +1240,11 @@ def get_win_snps(chrom:str, start:int, end:int, win:int, pgen_data:Union[str, pd
     interval_vars = pvar.loc[(pvar['CHROM'] == chrom) &
                              (pvar['POS'] >= start) &
                              (pvar['POS'] <= end)]
-    
-    win_snp_idxs = np.array_split(np.arange(len(interval_vars)), 
-                              np.arange(win_size, len(interval_vars), win_size))[win]
+    if win != -1:
+        win_snp_idxs = np.array_split(np.arange(len(interval_vars)), 
+                                np.arange(win_size, len(interval_vars), win_size))[win]
+    else:
+        win_snp_idxs = np.arange(len(interval_vars))
     return interval_vars.iloc[win_snp_idxs]
 
 def find_num_wins(chrom:str, start:int, end:int, pgen_data:Union[str, pd.DataFrame], 

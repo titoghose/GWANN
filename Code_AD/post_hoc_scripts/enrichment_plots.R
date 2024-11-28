@@ -3,8 +3,8 @@ library(gridExtra)
 library(stringr)
 library(grid)
 library(png)
-setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4")
-# setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/trad_GWAS")
+# setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4")
+setwd("/home/upamanyu/GWANN/Code_AD/results_Sens8_v4/trad_GWAS")
 
 load("enrichments/fGSEA_plots.RData")
 if (file.exists("enrichments/disgenet_plot.RData")) {

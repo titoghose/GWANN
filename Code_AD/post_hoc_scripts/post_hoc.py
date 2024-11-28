@@ -16,8 +16,6 @@ import tqdm
 from adjustText import adjust_text
 from Bio import Entrez
 from mygene import MyGeneInfo
-from scipy.stats import skewnorm
-from statsmodels.stats.multitest import multipletests
 
 sys.path.append('../..')
 from GWANN.dataset_utils import get_win_snps
@@ -27,48 +25,6 @@ GENE_COL = ''
 CHROM_COL = ''
 STAT_COL = ''
 LD_THRESH = 0.8
-
-class EstimatePValue:
-    def __init__(self, null_accs:np.ndarray) -> None:
-        self.null_accs = null_accs
-        self.moments = skewnorm.fit(null_accs)
-    
-    def plot_null_dist(self, plot_path:Optional[str]=None) -> None:
-        
-        plt.hist(self.null_accs, density=True, alpha=0.35)
-        xs = [100, 200, 500, 800, 1000, 2000, 5000]
-        ys = []
-        for n in xs:
-            np.random.seed(1047)    
-            null_acc_sample = np.random.choice(self.null_accs, size=n)
-            moments = skewnorm.fit(null_acc_sample)
-            ys.append(moments)
-            x = np.linspace(min(self.null_accs), max(self.null_accs), num=1000)
-            y = skewnorm.pdf(x, *moments)
-            plt.plot(x, y, linewidth=2, label=str(n))
-        
-        plt.legend(title='\n'.join(
-            wrap('Distribution estimation sample size', 20)))
-        plt.tight_layout()
-        if plot_path is not None:
-            plt.savefig(plot_path, dpi=100)
-            plt.close()
-        else:
-            plt.show()
-
-        # fig, ax = plt.subplots(1, 3, figsize=(10, 4))
-        # ax = ax.flatten()
-        # for i in range(len(ax)):
-        #     print([y[i] for y in ys])
-        #     ax[i].plot(xs, [y[i] for y in ys])
-        
-        # plt.xlabel('Num dummy datasets')
-        # plt.tight_layout()
-        # plt.savefig('dist_moments.png', dpi=100)
-        # plt.close()
-
-    def estimate(self, acc:float) -> float:
-        return skewnorm.sf(acc, *self.moments)
 
 def STRING_PPI_enrichment(gene_list:list, analysis_name:str='') -> dict:
 
@@ -94,48 +50,6 @@ def STRING_PPI_enrichment(gene_list:list, analysis_name:str='') -> dict:
     
     return out_dict
 
-def calculate_p_values(label:str, exp_name:str, metric:str, greater_is_better:bool):
-    if not os.path.exists(f'../results_{exp_name}'):
-        os.mkdir(f'../results_{exp_name}')
-    
-    null_df = pd.read_csv(
-        f'../NN_Logs/' + 
-        f'{label}_ChrDummy{exp_name}_GWANNet5_[32,16]_Dr_0.5_LR:0.005_BS:256_Optim:adam/'+
-        f'{label}_ChrDummy{exp_name}_2500bp_summary.csv')
-    if greater_is_better:
-        ep = EstimatePValue(null_accs=null_df[metric].values)
-    else:
-        ep = EstimatePValue(null_accs=-1*null_df[metric].values)
-    ep.plot_null_dist(f'{label}_{metric}_null_dist.png')
-
-    summ_df = pd.read_csv(
-        f'../NN_Logs/'+
-        f'{label}_Chr{exp_name}_2500bp_summary.csv')
-    if greater_is_better:
-        summ_df['P'] = summ_df[metric].apply(lambda x: ep.estimate(x)).values
-    else:
-        summ_df['P'] = summ_df[metric].apply(lambda x: ep.estimate(-1*x)).values
-
-    _, corr_p, _, alpha_bonf = multipletests(summ_df['P'].values, method='bonferroni')
-    summ_df[f'P_bonf'] = corr_p
-    summ_df[f'alpha_bonf'] = alpha_bonf
-    summ_df[f'P_fdr_bh'] = multipletests(summ_df['P'].values, method='fdr_bh')[1]
-    summ_df.to_csv(f'{label}_{metric}_{exp_name}_summary.csv', index=False)
-    hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'{label}_{metric}_{exp_name}_hits.csv', index=False)
-
-    gdf = pd.read_csv('/home/upamanyu/GWANN/GWANN/datatables/gene_annot.csv')
-    gdf.set_index('symbol', inplace=True)
-
-    summ_df[GENE_COL] = summ_df[GENE_COL].apply(lambda x:x.split('_')[0]).values
-    summ_df.sort_values([GENE_COL, 'P'], inplace=True)
-    summ_df.drop_duplicates([GENE_COL], inplace=True)
-    summ_df['entrez_id'] = gdf.loc[summ_df[GENE_COL].values]['id'].values
-    summ_df['ens_g'] = gdf.loc[summ_df[GENE_COL].values]['ens_g'].values
-    summ_df.to_csv(f'{label}_{metric}_{exp_name}_gene_summary.csv', index=False)
-    hits_df = summ_df.loc[summ_df['P_bonf'] < 0.05]
-    hits_df.to_csv(f'{label}_{metric}_{exp_name}_gene_hits.csv', index=False)
-    
 def combine_chrom_summ_stats(chroms:list, label:str, exp_name:str):
     comb_summ_df = []
     for chrom in chroms:
@@ -467,7 +381,8 @@ def hit_LD_prune(exp_name:str, exp_summary_file:str, p_thresh:float) -> None:
     hit_df.loc[non_block_idxs, 'ld_block'] = hit_df.loc[non_block_idxs, GENE_COL].apply(lambda x:str([x])).values
     hit_df['ld_block'] = hit_df['ld_block'].apply(lambda x: str(set(eval(x))))
                 
-    hit_df.to_csv(f'LD/r2{LD_THRESH:.1f}_pruned_gene_hits_{p_thresh:.0e}.csv', index=False)
+    hit_df.to_csv(f'LD/{exp_name}_r2{LD_THRESH:.1f}_pruned_gene_hits_{p_thresh:.0e}.csv', index=False)
+    # hit_df.to_csv(f'LD/{exp_name}_r2{LD_THRESH:.1f}_pruned_gene_hits.csv', index=False)
 
 def hit_gene_LD(exp_name:str, exp_summary_file:str, p_thresh:float, 
                 pgen_data_base:str) -> None:
@@ -604,7 +519,7 @@ if __name__ == '__main__':
     #########
     # GWANN #
     #########
-    set_col_names(p_col='p_stat_trial_A', gene_col='Gene', chrom_col='Chrom', 
+    set_col_names(p_col='p_stat_trial_A', gene_col='subgene', chrom_col='Chrom', 
                   stat_col='stat_trial_A')
     os.chdir('/home/upamanyu/GWANN/Code_AD/results_Sens8_v4')
     # for rseed in [937, 89, 172, 37, 363, 142]:
@@ -621,20 +536,25 @@ if __name__ == '__main__':
     #             exp_summary_file='summary_nsuperwins_1.csv', 
     #             p_thresh=5e-9, 
     #             pgen_data_base='/mnt/sdh/upamanyu/GWANN/GWANN_pgen')
-    for p_thresh in [5e-9, 1e-25]:
-        hit_LD_prune(exp_name='Sens8_v4', 
-                    exp_summary_file='summary_nsuperwins_1.csv', 
+    
+    # for null_dist_num, p_thresh in enumerate([1e-25, 1e-25, 1e-26, 1e-27, 1e-26, 1e-26, 1e-26, 1e-26, 1e-26, 1e-26]):
+    #     hit_LD_prune(exp_name=f'Sens8_v4_{null_dist_num}', 
+    #                 exp_summary_file=f'summary_nsuperwins_1_{null_dist_num}.csv', 
+    #                 p_thresh=p_thresh)
+    for null_dist_num, p_thresh in enumerate([1e-25]):
+        hit_LD_prune(exp_name=f'Sens8_v4_8runs', 
+                    exp_summary_file=f'8summary_nsuperwins_1.csv', 
                     p_thresh=p_thresh)
+
+    # # Manhattan Plot
+    # manhattan(exp_name='Sens8_v4', 
+    #           exp_summary_file=f'../results_Sens8_v4/summary_nsuperwins_1.csv', 
+    #           hits_df_path='../results_Sens8_v4/LD/r20.8_pruned_gene_hits_1e-25.csv', 
+    #           p_thresh=1e-25, p_nominal_thresh=7.06e-7, p_col=P_COL)
     
-    # Manhattan Plot
-    manhattan(exp_name='Sens8_v4', 
-              exp_summary_file=f'../results_Sens8_v4/summary_nsuperwins_1.csv', 
-              hits_df_path='../results_Sens8_v4/LD/r20.8_pruned_gene_hits_1e-25.csv', 
-              p_thresh=1e-25, p_nominal_thresh=7.06e-7, p_col=P_COL)
-    
-    # AGORA
-    mine_agora(exp_name='Sens8_v4', 
-               hits_df_path='LD/pruned_gene_hits_1e-25.csv')
+    # # AGORA
+    # mine_agora(exp_name='Sens8_v4', 
+    #            hits_df_path='LD/pruned_gene_hits_1e-25.csv')
     
     # Top 100 genes for disease, STRING and FUMA enrichment
     # summ_df = pd.read_csv('../results_Sens8_v4/summary_nsuperwins_1.csv')

@@ -10,17 +10,18 @@ import multiprocessing as mp
 from typing import Optional, Union
 
 import matplotlib.pyplot as plt
-import yaml
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import torch
 import torch.nn as nn
+import yaml
+from tqdm import tqdm
 
 from GWANN.dataset_utils import load_data, write_and_return_data
 from GWANN.models import AttentionMask1, GroupAttention, Identity
 from GWANN.train_model import Experiment
 from GWANN.train_utils import FastTensorDataLoader
+
 
 def create_cov_only_data(label:str, param_folder:str) -> None:
     """Create covariate data. By default it will always create the data
@@ -201,18 +202,13 @@ if __name__ == '__main__':
     parser.add_argument('--label', type=str, required=True)
     args = parser.parse_args()
     label = args.label
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
-
+    
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/Sens8'
     gpu_list = [0, 1]
-    grp_size = int(os.environ['GROUP_SIZE'])
+    grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    freeze_cov = int(os.environ['FREEZE_COV'])
-
-    if freeze_cov == 1:
-        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}_FrozenCov'
-    else:
-        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
+    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
     model_pipeline(label=label, param_folder=param_folder,
                     gpu_list=gpu_list, exp_name=exp_name, 
                     grp_size=grp_size)

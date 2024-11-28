@@ -2,24 +2,24 @@ import datetime
 import multiprocessing as mp
 import os
 import sys
-from functools import partial
 import time
+from functools import partial
 from typing import Optional
 
 import numpy as np
 import pandas as pd
+import torch.nn as nn
 import tqdm
 import yaml
-import torch.nn as nn
 
 sys.path.append('/home/upamanyu/GWANN')
 
 import argparse
 
 from GWANN.dataset_utils import PGEN2Pandas, load_data
+from GWANN.dummy_data import dummy_plink, merge_pgen
 from GWANN.models import AttentionMask1, GWANNet5
 from GWANN.train_model import Experiment
-from GWANN.dummy_data import dummy_plink
 
 
 def create_dummy_pgen(param_folder:str, label:str) -> None:
@@ -58,47 +58,40 @@ def create_dummy_pgen(param_folder:str, label:str) -> None:
 
     lock = mp.Manager().Lock()
     
-    # fargs = []
-    # cnt = 0
-    # dosage_freqs = [0.0, 0.02, 0.04, 0.06, 0.08]
-    # for num_snps in tqdm.tqdm([50]*100, desc='Num_dummy_snps'):
-    #     for dos_freq in dosage_freqs:
-    #         file_prefix = dummy_plink(samples=ids, 
-    #                 num_snps=num_snps, dosage_freq=dos_freq, 
-    #                 out_folder=f'{data_base_folder}/dummy_pgen',
-    #                 file_prefix=f'Dummy{cnt}')
-    #         # pg2pd = PGEN2Pandas(prefix=file_prefix)
-    #         # pg2pd.psam['IID'] = ids
-    #         # pg2pd.psam['FID'] = ids
+    file_prefixes = []
+    cnt = 0
+    num_snps = 500
+    dosage_freqs = [0.0, 0.02, 0.04, 0.06, 0.08]
+    for num_snps in tqdm.tqdm([num_snps]*200, desc='Num_dummy_snps'):
+        for dos_freq in dosage_freqs:
+            file_prefix = dummy_plink(samples=ids, 
+                    num_snps=num_snps, dosage_freq=dos_freq, 
+                    out_folder=f'{data_base_folder}/dummy_pgen',
+                    var_pos_offset=num_snps*cnt,
+                    file_prefix=f'Dummy{cnt}')
             
-    #         # Random seed is set using the seconds in system time, so it
-    #         # is important to sleep for 1 second to avoid two datasets
-    #         # being generated with the same random seed.
-    #         # time.sleep(1)
-            
-    #         fargs.append(
-    #             [ids, 
-    #              file_prefix, 
-    #              phen_cov, 
-    #              f'Dummy{cnt}', 
-    #              '1',
-    #              0,
-    #              1000,
-    #              2500,
-    #              label,
-    #              sys_params,
-    #              covs,
-    #              True,
-    #              False,
-    #              lock])
-    #         cnt += 1
-    #         if cnt > 500:
-    #             break
+            file_prefixes.append(file_prefix)
+            cnt += 1
 
-    # with mp.Pool(20) as pool:
-    #     pool.starmap(write_dummy_csvs, fargs, chunksize=1)
+    with open('.temp_file_prefixes.txt', 'w') as f:
+        f.write('\n'.join(file_prefixes))
+    
+    merge_pgen(pgen_prefix_file=os.path.abspath('.temp_file_prefixes.txt'),
+               out_folder=f'{data_base_folder}/dummy_pgen',
+               file_prefix=f'Dummy')
 
-    shuffle_dummy_csvs(sys_params['DATA_BASE_FOLDER'], covs)
+    os.remove('.temp_file_prefixes.txt')
+
+def write_dummy_csvs(ids:list, pg2pd_path:str, phen_cov:pd.DataFrame, gene:str, 
+                     label:str, sys_params:dict, covs:list, lock:mp.Lock) -> None:
+    
+    pg2pd = PGEN2Pandas(prefix=pg2pd_path)
+    pg2pd.psam['IID'] = ids
+    pg2pd.psam['FID'] = ids
+    load_data(pg2pd=pg2pd, phen_cov=phen_cov, gene=gene, 
+            label=label, sys_params=sys_params, covs=covs, 
+            chrom='1', start=0, end=1000, buffer=2500, save_data=True,
+            preprocess=False, lock=lock)
 
 def write_dummy_csvs(ids:list, pg2pd_path:str, phen_cov:pd.DataFrame, gene:str, 
                      chrom:str, start:int, end:int, buffer:int, label:str, 
@@ -161,7 +154,7 @@ def shuffle_snps(f:str, random_seeds:list, data_folder:str, covs:list,
         # df.iloc[:, :-(len(covs)+1)] = shuffled_snps
 
         data_path_split = f.split('_')
-        data_path_split.insert(2, str(snum))
+        # data_path_split.insert(2, str(snum))
         data_path = f'{wins_folder}/{"_".join(data_path_split)}'
         # df.to_csv(data_path)
         os.rename(f'{data_folder}/{f}', data_path)
@@ -187,17 +180,17 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
         sys_params = yaml.load(f, Loader=yaml.FullLoader)
     
-    gene_win_paths = os.listdir(f'{sys_params["DATA_BASE_FOLDER"]}/wins')
-    gene_win_paths = [g for g in gene_win_paths if 'Dummy' in g]
-    gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count'])
-    gene_win_df['chrom'] = [p.split('_')[0].replace('chr', '') for p in gene_win_paths]
-    gene_win_df['gene'] = [p.split('_')[1] for p in gene_win_paths]
-    gene_win_df['win'] = [p.split('_')[2] for p in gene_win_paths]
-    gene_win_df['win_count'] = 0
-    gene_win_df['win_count'] = gene_win_df.groupby('gene')['win_count'].transform('count').to_list()
-    gene_win_df.sort_values(['gene', 'win', 'win_count'], 
-                            ascending=[True, True, False], inplace=True)
-    
+    snps_per_gene = 500
+    gene_win_df = pd.DataFrame(columns=['chrom', 'gene', 'win', 'win_count', 'start', 'end'])
+    gene_win_df['gene'] = [f'Dummy{i}' for w in range(10) for i in range(1000)]
+    gene_win_df['win'] = [w for w in range(10) for i in range(1000)]
+    gene_win_df['win_count'] = 10
+    gene_win_df['start'] = [i*snps_per_gene for w in range(10) for i in range(1000)]
+    gene_win_df['end'] = [(i+1)*snps_per_gene for w in range(10) for i in range(1000)]
+    gene_win_df['end'] -= 1
+    gene_win_df['chrom'] = '1'
+    print(gene_win_df.head())
+
     # Setting the model for the Experiment
     model = GWANNet5
     model_params = {
@@ -239,11 +232,8 @@ def model_pipeline(exp_name:str, label:str, param_folder:str,
     
     gene_win_df.sort_values(['gene', 'win', 'win_count'], 
                             ascending=[True, True, False], inplace=True)
-    genes = {'gene':[], 'chrom':[], 'win':[]}
-    genes['gene'] = gene_win_df['gene'].to_list()
-    genes['chrom'] = gene_win_df['chrom'].to_list()
-    genes['win'] = gene_win_df['win'].to_list()
-    print(len(genes['gene']))
+    genes = gene_win_df.to_dict(orient='list')
+    print(f'Number of genes left to train: {len(genes["gene"])}')
 
     exp.parallel_run(genes=genes)
 
@@ -269,12 +259,8 @@ if __name__ == '__main__':
     grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
     random_seed=int(os.environ['GROUP_SEED'])
-    freeze_cov = int(os.environ['FREEZE_COV'])
     
-    if freeze_cov == 1:
-        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}_FrozenCov'
-    else:
-        exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
+    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
     exp_name = f'Dummy{exp_name}'
     model_pipeline(exp_name=f'{exp_name}', label=label, 
                 param_folder=param_folder, gpu_list=gpu_list, 

@@ -149,8 +149,9 @@ class Experiment:
         if not os.path.isdir(self.model_dir):
             os.mkdir(self.model_dir)
     
-    def __set_genotypes_and_covariates__(self, chrom:str) -> None:
-        pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
+    def __set_genotypes_and_covariates__(self, chrom:str, pgen_prefix:str='') -> None:
+        if pgen_prefix == '':
+            pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"][chrom]}/UKB_chr{chrom}'
         
         test_ids_f = f'{self.sys_params["PARAMS_PATH"]}/test_ids_{self.label}.csv'
         test_ids_df = pd.read_csv(test_ids_f, dtype={'iid':str})
@@ -201,7 +202,13 @@ class Experiment:
         end = gene_dict['end'] if 'end' in gene_dict else None
         win = gene_dict['win'] if 'win' in gene_dict else None
 
-        self.__set_genotypes_and_covariates__(chrom=chrom)
+        pgen_prefix = ''
+        if 'Dummy' in self.prefix:
+            print('Loading Dummy pgen')
+            pgen_prefix = f'{self.sys_params["RAW_BASE_FOLDER"]["Dummy"]}/Dummy_merged'
+        self.__set_genotypes_and_covariates__(chrom=chrom, 
+                                              pgen_prefix=pgen_prefix)
+        
         data = load_data(pg2pd=self.pg2pd, phen_cov=self.phen_cov, gene=gene, 
                         chrom=chrom, start=start, end=end, buffer=self.buffer, 
                         label=self.label, sys_params=self.sys_params, 

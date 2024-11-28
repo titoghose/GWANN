@@ -1,0 +1,30 @@
+DATA_BASE_FOLDER: /mnt/sdh/upamanyu/GWANN_files/Data_FH_AD
+DATA_LOGS: /mnt/sdh/upamanyu/GWANN_files/Data_logs_FH_AD.txt
+LOGS_BASE_FOLDER: /home/upamanyu/GWANN/Code_AD/NN_Logs
+PARAMS_PATH: /home/upamanyu/GWANN/Code_AD/params_non_white/reviewer_rerun_Sens8
+PHEN_COV_PATH: /mnt/sdg/UKB/Variables_UKB.txt
+RAW_BASE_FOLDER:
+  '1': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '10': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '11': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '12': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '13': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '14': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '15': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '16': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '17': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '18': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '19': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '2': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '20': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '21': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '22': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '3': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '4': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '5': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '6': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '7': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '8': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  '9': /mnt/sdh/upamanyu/UKB/Genomics_PGEN/Asian_Black
+  'Dummy': /mnt/sdh/upamanyu/GWANN_files/Data_Dummy/dummy_pgen_
+RUNS_BASE_FOLDER: /home/upamanyu/GWANN/Code_AD/Runs

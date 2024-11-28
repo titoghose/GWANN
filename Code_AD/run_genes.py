@@ -4,12 +4,12 @@ import os
 import sys
 from functools import partial
 from typing import Optional, Union
-from matplotlib import pyplot as plt
 
 import numpy as np
 import pandas as pd
-import yaml
 import torch.nn as nn
+import yaml
+from matplotlib import pyplot as plt
 
 sys.path.append('/home/upamanyu/GWANN')
 
@@ -209,7 +209,7 @@ if __name__ == '__main__':
     chrom = args.chrom
     
     # Run model training pipeline
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/Sens8'
     gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
     grp_size = int(os.environ['GROUP_SIZE'])
     torch_seed=int(os.environ['TORCH_SEED'])
@@ -221,9 +221,10 @@ if __name__ == '__main__':
     else:
         exp_name = f'ArchTest_{torch_seed}{random_seed}_GS{grp_size}'
     glist = get_chrom_glist(chrom)
-    glist = ['APOE', 'BIN1', 'PICALM', 'LRRC7', 'ADAM10', 'APH1B', 'MACROD2', 'WWOX']
     model_pipeline(exp_name=exp_name, label=label, 
                    param_folder=param_folder, 
                    gpu_list=gpu_list, glist=glist, 
                    grp_size=grp_size, shap_plots=False)
     
+    # create_csv_data(label=label, param_folder=param_folder, chrom=chrom, 
+    #                 glist=['APOE'], num_procs=1, split=False)

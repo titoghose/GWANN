@@ -1,21 +1,22 @@
 # coding: utf-8
+import csv
 import multiprocessing as mp
 import os
 import pickle
 import traceback
 from functools import partial
 from typing import Optional, Union
-import csv
 
 import numpy as np
 import pandas as pd
 import pgenlib as pg
 from sklearn.decomposition import PCA, IncrementalPCA, SparsePCA
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils.class_weight import compute_class_weight
 
 from GWANN.utils import vprint
+
 
 class PGEN2Pandas:
     
@@ -1237,9 +1238,11 @@ def get_win_snps(chrom:str, start:int, end:int, win:int, pgen_data:Union[str, pd
     interval_vars = pvar.loc[(pvar['CHROM'] == chrom) &
                              (pvar['POS'] >= start) &
                              (pvar['POS'] <= end)]
-    
-    win_snp_idxs = np.array_split(np.arange(len(interval_vars)), 
-                              np.arange(win_size, len(interval_vars), win_size))[win]
+    if win != -1:
+        win_snp_idxs = np.array_split(np.arange(len(interval_vars)), 
+                                np.arange(win_size, len(interval_vars), win_size))[win]
+    else:
+        win_snp_idxs = np.arange(len(interval_vars))
     return interval_vars.iloc[win_snp_idxs]
 
 def find_num_wins(chrom:str, start:int, end:int, pgen_data:Union[str, pd.DataFrame], 

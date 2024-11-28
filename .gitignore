@@ -1,6 +1,7 @@
-**/params/*
+**/params*
 **/__pycache__
 *.csv
+*.sample
 **/*NN_Logs*
 **/*Runs*
 **/*results*

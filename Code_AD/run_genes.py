@@ -209,17 +209,17 @@ if __name__ == '__main__':
     chrom = args.chrom
     
     # Run model training pipeline
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
-    # gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
-    # grp_size = 10
-    # torch_seed=int(os.environ['TORCH_SEED'])
-    # random_seed=int(os.environ['GROUP_SEED'])
-    # exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
-    # glist = get_chrom_glist(chrom)
-    # model_pipeline(exp_name=exp_name, label=label, 
-    #                param_folder=param_folder, 
-    #                gpu_list=gpu_list, glist=glist, 
-    #                grp_size=grp_size, shap_plots=False)
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/Sens8'
+    gpu_list = list(np.tile([0, 1, 2, 3, 4], 5))
+    grp_size = 10
+    torch_seed=int(os.environ['TORCH_SEED'])
+    random_seed=int(os.environ['GROUP_SEED'])
+    exp_name = f'Sens8_{torch_seed}{random_seed}_GS{grp_size}_v4'
+    glist = get_chrom_glist(chrom)
+    model_pipeline(exp_name=exp_name, label=label, 
+                   param_folder=param_folder, 
+                   gpu_list=gpu_list, glist=glist, 
+                   grp_size=grp_size, shap_plots=False)
     
-    create_csv_data(label=label, param_folder=param_folder, chrom=chrom, 
-                    glist=['APOE'], num_procs=1, split=False)
+    # create_csv_data(label=label, param_folder=param_folder, chrom=chrom, 
+    #                 glist=['APOE'], num_procs=1, split=False)

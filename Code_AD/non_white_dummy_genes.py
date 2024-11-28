@@ -212,7 +212,7 @@ if __name__ == '__main__':
     pop = args.pop
     os.environ['GPU'] = args.gpu
 
-    param_folder='/home/upamanyu/GWANN/Code_AD/params_non_white/reviewer_rerun_Sens8'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params_non_white/Sens8'
     label = 'FH_AD'
 
     with open('{}/params_{}.yaml'.format(param_folder, label), 'r') as f:
@@ -225,12 +225,12 @@ if __name__ == '__main__':
     # create_dummy_pgen(param_folder=param_folder, label=label, sys_params=params, covs=covs)
 
     # Save ids as all, train and test because the data loader expects it
-    ids = pd.read_csv(f'params_non_white/reviewer_rerun_Sens8/{pop}_ids_FH_AD.csv')
-    ids.to_csv('params_non_white/reviewer_rerun_Sens8/all_ids_FH_AD.csv', 
+    ids = pd.read_csv(f'params_non_white/Sens8/{pop}_ids_FH_AD.csv')
+    ids.to_csv('params_non_white/Sens8/all_ids_FH_AD.csv', 
                                 index=False)
-    ids.iloc[:100, :].to_csv(f'params_non_white/reviewer_rerun_Sens8/test_ids_FH_AD.csv', 
+    ids.iloc[:100, :].to_csv(f'params_non_white/Sens8/test_ids_FH_AD.csv', 
                                 index=False)
-    ids.iloc[100:, :].to_csv(f'params_non_white/reviewer_rerun_Sens8/train_ids_FH_AD.csv', 
+    ids.iloc[100:, :].to_csv(f'params_non_white/Sens8/train_ids_FH_AD.csv', 
                                 index=False)
   
     # Run inference on multiple seeds
@@ -241,6 +241,6 @@ if __name__ == '__main__':
 
     # Clean up
     # Delete the train and test ids
-    os.remove(f'params_non_white/reviewer_rerun_Sens8/all_ids_FH_AD.csv')
-    os.remove(f'params_non_white/reviewer_rerun_Sens8/test_ids_FH_AD.csv')
-    os.remove(f'params_non_white/reviewer_rerun_Sens8/train_ids_FH_AD.csv')
+    os.remove(f'params_non_white/Sens8/all_ids_FH_AD.csv')
+    os.remove(f'params_non_white/Sens8/test_ids_FH_AD.csv')
+    os.remove(f'params_non_white/Sens8/train_ids_FH_AD.csv')

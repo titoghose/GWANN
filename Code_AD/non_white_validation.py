@@ -205,7 +205,7 @@ def create_cohort(pop:str, sys_params:dict, covs:list):
     # Save the balanced cohort
     balanced_samples = balanced_df.reset_index().filter(['ID_1', 'FH_AD'])
     balanced_samples.rename(columns={'ID_1': 'iid'}, inplace=True)
-    balanced_samples.to_csv(f'params_non_white/reviewer_rerun_Sens8/{pop}_ids_FH_AD.csv', index=False)
+    balanced_samples.to_csv(f'params_non_white/Sens8/{pop}_ids_FH_AD.csv', index=False)
 
 def top_100_genes_from_white_population() -> pd.DataFrame:
     """Load the top 100 genes from the UKB white british population
@@ -250,20 +250,20 @@ if __name__ == '__main__':
     pop = args.pop
     os.environ['GPU'] = args.gpu
 
-    with open('params_non_white/reviewer_rerun_Sens8/params_FH_AD.yaml', 'r') as f:
+    with open('params_non_white/Sens8/params_FH_AD.yaml', 'r') as f:
         params = yaml.safe_load(f)
 
-    with open('params_non_white/reviewer_rerun_Sens8/covs_FH_AD.yaml', 'r') as f:
+    with open('params_non_white/Sens8/covs_FH_AD.yaml', 'r') as f:
         covs = yaml.safe_load(f)['COVARIATES']
 
     # create_cohort(pop, params, covs)
     
-    ids = pd.read_csv(f'params_non_white/reviewer_rerun_Sens8/{pop}_ids_FH_AD.csv')
+    ids = pd.read_csv(f'params_non_white/Sens8/{pop}_ids_FH_AD.csv')
     
     # Save ids as train and test because the data loader expects it
-    ids.iloc[:100, :].to_csv(f'params_non_white/reviewer_rerun_Sens8/test_ids_FH_AD.csv', 
+    ids.iloc[:100, :].to_csv(f'params_non_white/Sens8/test_ids_FH_AD.csv', 
                                 index=False)
-    ids.iloc[100:, :].to_csv(f'params_non_white/reviewer_rerun_Sens8/train_ids_FH_AD.csv', 
+    ids.iloc[100:, :].to_csv(f'params_non_white/Sens8/train_ids_FH_AD.csv', 
                                 index=False)
 
     # Get top 100 gene windows from the white population
@@ -275,5 +275,5 @@ if __name__ == '__main__':
     
     # Clean up
     # Delete the train and test ids
-    os.remove(f'params_non_white/reviewer_rerun_Sens8/test_ids_FH_AD.csv')
-    os.remove(f'params_non_white/reviewer_rerun_Sens8/train_ids_FH_AD.csv')
+    os.remove(f'params_non_white/Sens8/test_ids_FH_AD.csv')
+    os.remove(f'params_non_white/Sens8/train_ids_FH_AD.csv')

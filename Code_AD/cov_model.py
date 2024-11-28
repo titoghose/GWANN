@@ -10,17 +10,18 @@ import multiprocessing as mp
 from typing import Optional, Union
 
 import matplotlib.pyplot as plt
-import yaml
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 import torch
 import torch.nn as nn
+import yaml
+from tqdm import tqdm
 
 from GWANN.dataset_utils import load_data, write_and_return_data
 from GWANN.models import AttentionMask1, GroupAttention, Identity
 from GWANN.train_model import Experiment
 from GWANN.train_utils import FastTensorDataLoader
+
 
 def create_cov_only_data(label:str, param_folder:str) -> None:
     """Create covariate data. By default it will always create the data
@@ -202,7 +203,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     label = args.label
     
-    param_folder='/home/upamanyu/GWANN/Code_AD/params/reviewer_rerun_Sens8'
+    param_folder='/home/upamanyu/GWANN/Code_AD/params/Sens8'
     gpu_list = [0, 1]
     grp_size = 10
     torch_seed=int(os.environ['TORCH_SEED'])

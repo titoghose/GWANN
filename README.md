@@ -2,7 +2,7 @@
 
 ## Manuscript
 
-[Genome wide association neural networks (GWANN) identify novel genes linked to family history of Alzheimer’s disease in the UK BioBank](https://www.medrxiv.org/content/10.1101/2022.06.10.22276251)
+[Genome-wide association neural networks identify genes linked to family history of Alzheimer’s disease](https://doi.org/10.1093/bib/bbae704)
 
 ## Prerequisites
 

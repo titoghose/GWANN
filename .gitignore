@@ -1,8 +1,16 @@
-**/params/*
 **/__pycache__
+.python-version
+.vscode
+
+# Parameters
+**/params*
+
+# Data 
 *.csv
+*.sample
+*.gmt
+
+# Logs and results
 **/*NN_Logs*
 **/*Runs*
 **/*results*
-.python-version
-.vscode

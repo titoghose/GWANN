@@ -4,10 +4,40 @@
 
 [Genome wide association neural networks (GWANN) identify novel genes linked to family history of Alzheimer’s disease in the UK BioBank](https://www.medrxiv.org/content/10.1101/2022.06.10.22276251)
 
+## Prerequisites
+
+- SNP data in PGEN files
+- Covariates in a csv file 
+
+**Note:** The code has been written to analyse UK Biobank data and may have some data fields such as age and sex hard-coded in certain parts of the code. 
 
 ## Analysis parameters
 
-The analysis requires parameters and covariates in a yaml file.
+The analysis requires parameters and covariates in a yaml file. It also needs the participant ids along with the phenotype in csv files. These participants will be extracted from the pgen file (genetic data) and the covariate file. 
+
+They need to be within the following folder structure:
+
+```
+GWANN
+  |__Code_AD
+    |__<params>
+      |__<exp_name>
+        |-- params_FH_AD.yaml
+        |-- covs_FH_AD.yaml
+        |-- all_ids_FH_AD.yaml
+        |-- train_ids_FH_AD.yaml
+        |-- test_ids_FH_AD.yaml
+
+```
+
+- Currently the code expects the <params> folder to be called 'params' for the White-British analysis and 'params_non_white' for the Asian and Black analysis. The <exp_name> is set as 'Sens8'. If you wish to modify the names of these folders, please change the path in the following folders:
+  - `Code_AD/run_genes.py`
+  - `Code_AD/cov_model.py`
+  - `Code_AD/dummy_genes.py`
+  - `Code_AD/non_white_validation.py`
+  - `Code_AD/non_white_dummy_genes.py`
+
+- 'FH_AD' is the phenotype of interest. Please change it if your phenotype is called something else. 
 
 ### Parameters
 
@@ -68,16 +98,24 @@ The pipeline in `Code_AD/run_pipeline.sh` was used to run the analysis genome wi
 - Then trains the models for each gene window
 - Finally, trains models for dummy gene windows
 
+**Note:** Please modify paths before running
+
 ## Non-white Populations
 
 After training the models on the White-British Population, the `Code_AD/non_white_validation.sh` was used to run the models in inference mode on the Asian and Black populations in the UK Biobank.
 - It obtains the metrics for all random seeds and both populations for the top 100 gene windows from the white-british population
 - Finally, it generates dummy SNPs for each population and obtains the metrics for the dummy windows
 
+**Note:** Please modify paths before running
+
 ## P-value calculations
 
 The script `Code_AD/post_hoc_scripts/calc_pvalue.R` is used to obtain the P-value from a single file containing the metrics of every gene window for all random seeds, and a similar file for all dummy gene windows.
 
+**Note:** Please modify paths before running
+
 ## Post-hoc analyses
 
 The scripts in the folder `Code_AD/post_hoc_scripts` were used to perform the series of post hoc analyses discussed in the manuscript. 
+
+**Note:** Please modify paths before running
